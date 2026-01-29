@@ -47,11 +47,8 @@ RUN npx prisma generate
 # Copy built files
 COPY --from=base /app/dist ./dist
 
-# Copy startup script
-COPY start.sh ./start.sh
-RUN chmod +x ./start.sh
-
 # Expose port
 EXPOSE 3001
 
-CMD ["./start.sh"]
+# Simple CMD - migrations will be handled by prisma on first connect or manually
+CMD ["node", "dist/index.js"]
