@@ -6,10 +6,14 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
 const app = express();
 
+// CORS configuration
+const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
+console.log('CORS Origin configured:', corsOrigin);
+
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: corsOrigin.includes(',') ? corsOrigin.split(',') : corsOrigin,
   credentials: true,
 }));
 app.use(express.json());
