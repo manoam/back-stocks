@@ -1,0 +1,177 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SupplyRisk {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum MovementType {
+  IN
+  OUT
+  TRANSFER
+}
+
+enum ProductCondition {
+  NEW
+  USED
+}
+
+enum OrderStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum SiteType {
+  STORAGE
+  EXIT
+}
+
+model ProductGroup {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  description String?
+  createdAt   DateTime  @default(now())
+  products    Product[]
+
+  @@map("product_groups")
+}
+
+model Supplier {
+  id               String            @id @default(uuid())
+  name             String            @unique
+  contact          String?
+  email            String?
+  phone            String?
+  website          String?
+  address          String?
+  comment          String?
+  createdAt        DateTime          @default(now())
+  productSuppliers ProductSupplier[]
+  orders           Order[]
+
+  @@map("suppliers")
+}
+
+model Site {
+  id              String          @id @default(uuid())
+  name            String          @unique
+  type            SiteType
+  address         String?
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  stocks          Stock[]
+  sourceMovements StockMovement[] @relation("SourceSite")
+  targetMovements StockMovement[] @relation("TargetSite")
+  orders          Order[]
+
+  @@map("sites")
+}
+
+model Product {
+  id               String            @id @default(uuid())
+  reference        String            @unique
+  description      String?
+  qtyPerUnit       Int               @default(1)
+  supplyRisk       SupplyRisk?
+  location         String?
+  groupId          String?
+  group            ProductGroup?     @relation(fields: [groupId], references: [id])
+  comment          String?
+  imageUrl         String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  productSuppliers ProductSupplier[]
+  stocks           Stock[]
+  movements        StockMovement[]
+  orders           Order[]
+
+  @@map("products")
+}
+
+model ProductSupplier {
+  id             String    @id @default(uuid())
+  productId      String
+  product        Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplierId     String
+  supplier       Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplierRef    String?
+  unitPrice      Decimal?  @db.Decimal(10, 2)
+  leadTime       String?
+  productUrl     String?
+  shippingCost   Decimal?  @db.Decimal(10, 2)
+  isPrimary      Boolean   @default(false)
+  priceUpdatedAt DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@unique([productId, supplierId])
+  @@map("product_suppliers")
+}
+
+model Stock {
+  id           String   @id @default(uuid())
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  siteId       String
+  site         Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  quantityNew  Int      @default(0)
+  quantityUsed Int      @default(0)
+  updatedAt    DateTime @updatedAt
+
+  @@unique([productId, siteId])
+  @@map("stocks")
+}
+
+model StockMovement {
+  id           String           @id @default(uuid())
+  productId    String
+  product      Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type         MovementType
+  sourceSiteId String?
+  sourceSite   Site?            @relation("SourceSite", fields: [sourceSiteId], references: [id])
+  targetSiteId String?
+  targetSite   Site?            @relation("TargetSite", fields: [targetSiteId], references: [id])
+  quantity     Int
+  condition    ProductCondition
+  movementDate DateTime
+  operator     String?
+  comment      String?
+  createdAt    DateTime         @default(now())
+
+  @@index([productId])
+  @@index([movementDate])
+  @@map("stock_movements")
+}
+
+model Order {
+  id                String      @id @default(uuid())
+  productId         String
+  product           Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplierId        String
+  supplier          Supplier    @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  quantity          Int
+  status            OrderStatus @default(PENDING)
+  orderDate         DateTime
+  expectedDate      DateTime?
+  receivedDate      DateTime?
+  receivedQty       Int?
+  destinationSiteId String?
+  destinationSite   Site?       @relation(fields: [destinationSiteId], references: [id])
+  responsible       String?
+  supplierRef       String?
+  comment           String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([status])
+  @@index([orderDate])
+  @@map("orders")
+}
