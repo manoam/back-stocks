@@ -2,7 +2,7 @@ import 'dotenv/config';
 import app from './app';
 import prisma from './config/database';
 
-const PORT = process.env.PORT || 3001;
+const PORT = parseInt(process.env.PORT || '3001', 10);
 
 console.log('=== Server Startup ===');
 console.log('NODE_ENV:', process.env.NODE_ENV);
