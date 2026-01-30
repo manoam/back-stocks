@@ -6,6 +6,8 @@ import stockRoutes from './stocks';
 import movementRoutes from './movements';
 import orderRoutes from './orders';
 import dashboardRoutes from './dashboard';
+import importRoutes from './import';
+import exportRoutes from './export';
 
 const router = Router();
 
@@ -16,6 +18,8 @@ router.use('/stocks', stockRoutes);
 router.use('/movements', movementRoutes);
 router.use('/orders', orderRoutes);
 router.use('/dashboard', dashboardRoutes);
+router.use('/import', importRoutes);
+router.use('/export', exportRoutes);
 
 // Health check
 router.get('/health', (req, res) => {
