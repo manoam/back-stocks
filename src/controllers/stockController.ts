@@ -5,7 +5,13 @@ export const getAll = async (req: Request, res: Response, next: NextFunction) =>
   try {
     const stocks = await prisma.stock.findMany({
       include: {
-        product: true,
+        product: {
+          include: {
+            productAssemblies: {
+              include: { assembly: true },
+            },
+          },
+        },
         site: true,
       },
       orderBy: [

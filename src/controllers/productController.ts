@@ -77,6 +77,9 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
         productSuppliers: {
           include: { supplier: true },
         },
+        productAssemblies: {
+          include: { assembly: true },
+        },
         stocks: {
           include: { site: true },
         },

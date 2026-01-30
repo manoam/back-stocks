@@ -8,6 +8,7 @@ import orderRoutes from './orders';
 import dashboardRoutes from './dashboard';
 import importRoutes from './import';
 import exportRoutes from './export';
+import assemblyRoutes from './assemblyRoutes';
 
 const router = Router();
 
@@ -20,6 +21,7 @@ router.use('/orders', orderRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/import', importRoutes);
 router.use('/export', exportRoutes);
+router.use('/assemblies', assemblyRoutes);
 
 // Health check
 router.get('/health', (req, res) => {

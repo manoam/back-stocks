@@ -54,11 +54,20 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
       where: { id },
       include: {
         productSuppliers: {
-          include: { product: true },
+          include: {
+            product: {
+              include: {
+                group: true,
+              },
+            },
+          },
         },
         orders: {
+          include: {
+            product: true,
+            destinationSite: true,
+          },
           orderBy: { orderDate: 'desc' },
-          take: 10,
         },
       },
     });
