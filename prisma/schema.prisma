@@ -35,24 +35,38 @@ enum SiteType {
   EXIT
 }
 
-model ProductGroup {
-  id          String    @id @default(uuid())
-  name        String    @unique
+model AssemblyType {
+  id          String                 @id @default(uuid())
+  name        String                 @unique
   description String?
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime               @default(now())
+  assemblies  AssemblyAssemblyType[]
   products    Product[]
 
-  @@map("product_groups")
+  @@map("assembly_types")
 }
 
 model Assembly {
-  id                String            @id @default(uuid())
-  name              String            @unique
-  description       String?
-  createdAt         DateTime          @default(now())
-  productAssemblies ProductAssembly[]
+  id            String                 @id @default(uuid())
+  name          String                 @unique
+  description   String?
+  createdAt     DateTime               @default(now())
+  products      Product[]
+  assemblyTypes AssemblyAssemblyType[]
 
   @@map("assemblies")
+}
+
+model AssemblyAssemblyType {
+  id             String       @id @default(uuid())
+  assemblyId     String
+  assembly       Assembly     @relation(fields: [assemblyId], references: [id], onDelete: Cascade)
+  assemblyTypeId String
+  assemblyType   AssemblyType @relation(fields: [assemblyTypeId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([assemblyId, assemblyTypeId])
+  @@map("assembly_assembly_types")
 }
 
 model Supplier {
@@ -87,38 +101,26 @@ model Site {
 }
 
 model Product {
-  id                 String              @id @default(uuid())
-  reference          String              @unique
-  description        String?
-  qtyPerUnit         Int                 @default(1)
-  supplyRisk         SupplyRisk?
-  location           String?
-  groupId            String?
-  group              ProductGroup?       @relation(fields: [groupId], references: [id])
-  comment            String?
-  imageUrl           String?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  productSuppliers   ProductSupplier[]
-  productAssemblies  ProductAssembly[]
-  stocks             Stock[]
-  movements          StockMovement[]
-  orders             Order[]
+  id               String            @id @default(uuid())
+  reference        String            @unique
+  description      String?
+  qtyPerUnit       Int               @default(1)
+  supplyRisk       SupplyRisk?
+  location         String?
+  assemblyId       String?
+  assembly         Assembly?         @relation(fields: [assemblyId], references: [id], onDelete: SetNull)
+  assemblyTypeId   String?
+  assemblyType     AssemblyType?     @relation(fields: [assemblyTypeId], references: [id], onDelete: SetNull)
+  comment          String?
+  imageUrl         String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  productSuppliers ProductSupplier[]
+  stocks           Stock[]
+  movements        StockMovement[]
+  orders           Order[]
 
   @@map("products")
-}
-
-model ProductAssembly {
-  id           String   @id @default(uuid())
-  productId    String
-  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  assemblyId   String
-  assembly     Assembly @relation(fields: [assemblyId], references: [id], onDelete: Cascade)
-  quantityUsed Int      @default(1)
-  createdAt    DateTime @default(now())
-
-  @@unique([productId, assemblyId])
-  @@map("product_assemblies")
 }
 
 model ProductSupplier {

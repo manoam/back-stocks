@@ -6,9 +6,10 @@ export const createProductSchema = z.object({
   qtyPerUnit: z.number().int().positive().default(1),
   supplyRisk: z.enum(['HIGH', 'MEDIUM', 'LOW']).optional(),
   location: z.string().max(20).optional(),
-  groupId: z.string().uuid().optional(),
+  assemblyId: z.string().uuid().optional().nullable().transform(val => val || undefined),
+  assemblyTypeId: z.string().uuid().optional().nullable().transform(val => val || undefined),
   comment: z.string().optional(),
-  imageUrl: z.string().url().optional(),
+  imageUrl: z.string().optional().or(z.literal('')).transform(val => val || undefined),
 });
 
 export const updateProductSchema = createProductSchema.partial();
@@ -19,7 +20,8 @@ export const productQuerySchema = z.object({
   search: z.string().optional(),
   supplyRisk: z.enum(['HIGH', 'MEDIUM', 'LOW']).optional(),
   supplierId: z.string().uuid().optional(),
-  groupId: z.string().uuid().optional(),
+  assemblyId: z.string().uuid().optional(),
+  assemblyTypeId: z.string().uuid().optional(),
   sortBy: z.string().default('reference'),
   sortOrder: z.enum(['asc', 'desc']).default('asc'),
 });

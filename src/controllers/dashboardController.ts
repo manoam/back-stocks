@@ -155,15 +155,15 @@ export const getLowStockAlerts = async (req: Request, res: Response, next: NextF
           include: { supplier: true },
           take: 1,
         },
-        group: true,
+        assembly: true,
       },
     });
 
     // Filtrer les produits avec stock bas
     const lowStockProducts = products
       .map((product) => {
-        const totalNew = product.stocks.reduce((sum, s) => sum + s.quantityNew, 0);
-        const totalUsed = product.stocks.reduce((sum, s) => sum + s.quantityUsed, 0);
+        const totalNew = product.stocks.reduce((sum: number, s: any) => sum + s.quantityNew, 0);
+        const totalUsed = product.stocks.reduce((sum: number, s: any) => sum + s.quantityUsed, 0);
         const total = totalNew + totalUsed;
         const possibleUnits = product.qtyPerUnit > 0 ? Math.floor(total / product.qtyPerUnit) : 0;
 
@@ -171,7 +171,7 @@ export const getLowStockAlerts = async (req: Request, res: Response, next: NextF
           id: product.id,
           reference: product.reference,
           description: product.description,
-          group: product.group?.name,
+          assembly: product.assembly?.name,
           qtyPerUnit: product.qtyPerUnit,
           supplyRisk: product.supplyRisk,
           totalNew,
@@ -273,17 +273,17 @@ export const getTopProductsByStock = async (req: Request, res: Response, next: N
     const products = await prisma.product.findMany({
       include: {
         stocks: true,
-        group: true,
+        assembly: true,
       },
     });
 
     const productData = products
       .map((product) => ({
         reference: product.reference,
-        group: product.group?.name || 'Sans groupe',
-        totalNew: product.stocks.reduce((sum, s) => sum + s.quantityNew, 0),
-        totalUsed: product.stocks.reduce((sum, s) => sum + s.quantityUsed, 0),
-        total: product.stocks.reduce((sum, s) => sum + s.quantityNew + s.quantityUsed, 0),
+        assembly: product.assembly?.name || 'Sans type',
+        totalNew: product.stocks.reduce((sum: number, s: any) => sum + s.quantityNew, 0),
+        totalUsed: product.stocks.reduce((sum: number, s: any) => sum + s.quantityUsed, 0),
+        total: product.stocks.reduce((sum: number, s: any) => sum + s.quantityNew + s.quantityUsed, 0),
       }))
       .filter((p) => p.total > 0)
       .sort((a, b) => b.total - a.total)

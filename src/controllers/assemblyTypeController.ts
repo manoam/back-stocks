@@ -4,36 +4,35 @@ import { AppError } from '../middleware/errorHandler';
 
 export const getAll = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { page = 1, limit = 20, search } = (req as any).parsedQuery || req.query;
+    const { page = 1, limit = 50, search } = (req as any).parsedQuery || req.query;
 
     const where: any = {};
 
     if (search) {
       where.OR = [
         { name: { contains: search as string, mode: 'insensitive' } },
-        { contact: { contains: search as string, mode: 'insensitive' } },
-        { email: { contains: search as string, mode: 'insensitive' } },
+        { description: { contains: search as string, mode: 'insensitive' } },
       ];
     }
 
-    const [suppliers, total] = await Promise.all([
-      prisma.supplier.findMany({
+    const [assemblyTypes, total] = await Promise.all([
+      prisma.assemblyType.findMany({
         where,
         include: {
           _count: {
-            select: { productSuppliers: true, orders: true },
+            select: { assemblies: true },
           },
         },
         orderBy: { name: 'asc' },
         skip: (Number(page) - 1) * Number(limit),
         take: Number(limit),
       }),
-      prisma.supplier.count({ where }),
+      prisma.assemblyType.count({ where }),
     ]);
 
     res.json({
       success: true,
-      data: suppliers,
+      data: assemblyTypes,
       pagination: {
         page: Number(page),
         limit: Number(limit),
@@ -50,33 +49,36 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
   try {
     const id = req.params.id as string;
 
-    const supplier = await prisma.supplier.findUnique({
+    const assemblyType = await prisma.assemblyType.findUnique({
       where: { id },
       include: {
-        productSuppliers: {
+        assemblies: {
           include: {
-            product: {
+            assembly: {
               include: {
-                assembly: true,
+                products: {
+                  include: {
+                    stocks: true,
+                  },
+                },
               },
             },
           },
         },
-        orders: {
-          include: {
-            product: true,
-            destinationSite: true,
-          },
-          orderBy: { orderDate: 'desc' },
-        },
       },
     });
 
-    if (!supplier) {
-      throw new AppError('Fournisseur non trouvé', 404);
+    if (!assemblyType) {
+      throw new AppError('Type d\'assemblage non trouvé', 404);
     }
 
-    res.json({ success: true, data: supplier });
+    // Transform to flatten assemblies
+    const data = {
+      ...assemblyType,
+      assemblies: assemblyType.assemblies.map((a) => a.assembly),
+    };
+
+    res.json({ success: true, data });
   } catch (error) {
     next(error);
   }
@@ -84,11 +86,11 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
 
 export const create = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const supplier = await prisma.supplier.create({
+    const assemblyType = await prisma.assemblyType.create({
       data: req.body,
     });
 
-    res.status(201).json({ success: true, data: supplier });
+    res.status(201).json({ success: true, data: assemblyType });
   } catch (error) {
     next(error);
   }
@@ -98,12 +100,12 @@ export const update = async (req: Request, res: Response, next: NextFunction) =>
   try {
     const id = req.params.id as string;
 
-    const supplier = await prisma.supplier.update({
+    const assemblyType = await prisma.assemblyType.update({
       where: { id },
       data: req.body,
     });
 
-    res.json({ success: true, data: supplier });
+    res.json({ success: true, data: assemblyType });
   } catch (error) {
     next(error);
   }
@@ -113,9 +115,10 @@ export const remove = async (req: Request, res: Response, next: NextFunction) =>
   try {
     const id = req.params.id as string;
 
-    await prisma.supplier.delete({ where: { id } });
+    // The relations in assembly_assembly_types will be deleted automatically via CASCADE
+    await prisma.assemblyType.delete({ where: { id } });
 
-    res.json({ success: true, message: 'Fournisseur supprimé' });
+    res.json({ success: true, message: 'Type d\'assemblage supprimé' });
   } catch (error) {
     next(error);
   }

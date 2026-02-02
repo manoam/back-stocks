@@ -9,7 +9,7 @@ export const exportProducts = async (req: Request, res: Response, next: NextFunc
 
     const products = await prisma.product.findMany({
       include: {
-        group: true,
+        assembly: true,
         productSuppliers: {
           include: { supplier: true },
           where: { isPrimary: true },
@@ -32,7 +32,7 @@ export const exportProducts = async (req: Request, res: Response, next: NextFunc
     const baseHeaders = [
       'Référence produit',
       'Description',
-      'Groupe',
+      'Type de produit',
       'Qté 1 borne',
       'Risque appro',
       'Emplacement',
@@ -76,7 +76,7 @@ export const exportProducts = async (req: Request, res: Response, next: NextFunc
       const baseData = [
         product.reference,
         product.description || '',
-        product.group?.name || '',
+        product.assembly?.name || '',
         product.qtyPerUnit,
         mapRiskToFrench(product.supplyRisk),
         product.location || '',
@@ -356,7 +356,7 @@ export const exportAll = async (req: Request, res: Response, next: NextFunction)
     // 1. SYNTHESE (Products with stocks)
     const products = await prisma.product.findMany({
       include: {
-        group: true,
+        assembly: true,
         productSuppliers: {
           include: { supplier: true },
           where: { isPrimary: true },
@@ -373,7 +373,7 @@ export const exportAll = async (req: Request, res: Response, next: NextFunction)
     });
 
     const syntheseHeaders = [
-      'Référence produit', 'Description', 'Groupe', 'Qté 1 borne', 'Risque appro', 'Emplacement',
+      'Référence produit', 'Description', 'Type de produit', 'Qté 1 borne', 'Risque appro', 'Emplacement',
       'Fournisseur principal', 'PA unit.', 'Délai appro', 'Frais livraison',
     ];
     sites.forEach(site => {
@@ -386,14 +386,14 @@ export const exportAll = async (req: Request, res: Response, next: NextFunction)
       const stockBySite: Record<string, { new: number; used: number }> = {};
       let totalNew = 0, totalUsed = 0;
 
-      product.stocks.forEach(s => {
+      product.stocks.forEach((s: any) => {
         totalNew += s.quantityNew;
         totalUsed += s.quantityUsed;
         stockBySite[s.site.name] = { new: s.quantityNew, used: s.quantityUsed };
       });
 
       const row: any[] = [
-        product.reference, product.description || '', product.group?.name || '',
+        product.reference, product.description || '', product.assembly?.name || '',
         product.qtyPerUnit, mapRiskToFrench(product.supplyRisk), product.location || '',
         ps?.supplier?.name || '', ps?.unitPrice ? Number(ps.unitPrice) : '',
         ps?.leadTime || '', ps?.shippingCost ? Number(ps.shippingCost) : '',

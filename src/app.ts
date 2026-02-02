@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import path from 'path';
 import routes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
@@ -11,13 +12,18 @@ const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
 console.log('CORS Origin configured:', corsOrigin);
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
 app.use(cors({
-  origin: corsOrigin.includes(',') ? corsOrigin.split(',') : corsOrigin,
+  origin: corsOrigin.includes(',') ? corsOrigin.split(',') : corsOrigin as string,
   credentials: true,
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Serve uploaded files
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Simple ping endpoint (no DB required)
 app.get('/', (req, res) => {

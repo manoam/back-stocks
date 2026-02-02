@@ -5,7 +5,7 @@ import { AppError } from '../middleware/errorHandler';
 
 export const getAll = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { page, limit, search, supplyRisk, supplierId, groupId, sortBy, sortOrder } = (req as any).parsedQuery as ProductQueryInput;
+    const { page, limit, search, supplyRisk, supplierId, assemblyId, assemblyTypeId, sortBy, sortOrder } = (req as any).parsedQuery as ProductQueryInput;
 
     const where: any = {};
 
@@ -20,8 +20,12 @@ export const getAll = async (req: Request, res: Response, next: NextFunction) =>
       where.supplyRisk = supplyRisk;
     }
 
-    if (groupId) {
-      where.groupId = groupId;
+    if (assemblyId) {
+      where.assemblyId = assemblyId;
+    }
+
+    if (assemblyTypeId) {
+      where.assemblyTypeId = assemblyTypeId;
     }
 
     if (supplierId) {
@@ -34,7 +38,14 @@ export const getAll = async (req: Request, res: Response, next: NextFunction) =>
       prisma.product.findMany({
         where,
         include: {
-          group: true,
+          assembly: {
+            include: {
+              assemblyTypes: {
+                include: { assemblyType: true },
+              },
+            },
+          },
+          assemblyType: true,
           productSuppliers: {
             include: { supplier: true },
             where: { isPrimary: true },
@@ -73,12 +84,16 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
     const product = await prisma.product.findUnique({
       where: { id },
       include: {
-        group: true,
+        assembly: {
+          include: {
+            assemblyTypes: {
+              include: { assemblyType: true },
+            },
+          },
+        },
+        assemblyType: true,
         productSuppliers: {
           include: { supplier: true },
-        },
-        productAssemblies: {
-          include: { assembly: true },
         },
         stocks: {
           include: { site: true },
@@ -113,7 +128,7 @@ export const create = async (req: Request, res: Response, next: NextFunction) =>
   try {
     const product = await prisma.product.create({
       data: req.body,
-      include: { group: true },
+      include: { assembly: true, assemblyType: true },
     });
 
     res.status(201).json({ success: true, data: product });
@@ -129,7 +144,7 @@ export const update = async (req: Request, res: Response, next: NextFunction) =>
     const product = await prisma.product.update({
       where: { id },
       data: req.body,
-      include: { group: true },
+      include: { assembly: true, assemblyType: true },
     });
 
     res.json({ success: true, data: product });

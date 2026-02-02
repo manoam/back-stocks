@@ -1,15 +1,13 @@
 import { z } from 'zod';
 
-export const createAssemblySchema = z.object({
+export const createAssemblyTypeSchema = z.object({
   name: z.string().min(1, 'Le nom est requis'),
   description: z.string().optional(),
-  assemblyTypeIds: z.array(z.string().uuid()).optional(),
 });
 
-export const updateAssemblySchema = z.object({
+export const updateAssemblyTypeSchema = z.object({
   name: z.string().min(1, 'Le nom est requis').optional(),
   description: z.string().optional().nullable(),
-  assemblyTypeIds: z.array(z.string().uuid()).optional(),
 });
 
 export const querySchema = z.object({

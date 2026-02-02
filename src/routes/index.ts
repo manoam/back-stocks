@@ -9,6 +9,8 @@ import dashboardRoutes from './dashboard';
 import importRoutes from './import';
 import exportRoutes from './export';
 import assemblyRoutes from './assemblyRoutes';
+import assemblyTypeRoutes from './assemblyTypeRoutes';
+import uploadRoutes from './upload';
 
 const router = Router();
 
@@ -22,6 +24,8 @@ router.use('/dashboard', dashboardRoutes);
 router.use('/import', importRoutes);
 router.use('/export', exportRoutes);
 router.use('/assemblies', assemblyRoutes);
+router.use('/assembly-types', assemblyTypeRoutes);
+router.use('/upload', uploadRoutes);
 
 // Health check
 router.get('/health', (req, res) => {

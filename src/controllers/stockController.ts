@@ -7,8 +7,12 @@ export const getAll = async (req: Request, res: Response, next: NextFunction) =>
       include: {
         product: {
           include: {
-            productAssemblies: {
-              include: { assembly: true },
+            assembly: {
+              include: {
+                assemblyTypes: {
+                  include: { assemblyType: true },
+                },
+              },
             },
           },
         },

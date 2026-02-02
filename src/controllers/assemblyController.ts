@@ -19,8 +19,13 @@ export const getAll = async (req: Request, res: Response, next: NextFunction) =>
       prisma.assembly.findMany({
         where,
         include: {
+          assemblyTypes: {
+            include: {
+              assemblyType: true,
+            },
+          },
           _count: {
-            select: { productAssemblies: true },
+            select: { products: true },
           },
         },
         orderBy: { name: 'asc' },
@@ -30,9 +35,15 @@ export const getAll = async (req: Request, res: Response, next: NextFunction) =>
       prisma.assembly.count({ where }),
     ]);
 
+    // Transform to flatten assemblyTypes
+    const data = assemblies.map((assembly) => ({
+      ...assembly,
+      assemblyTypes: assembly.assemblyTypes.map((at) => at.assemblyType),
+    }));
+
     res.json({
       success: true,
-      data: assemblies,
+      data,
       pagination: {
         page: Number(page),
         limit: Number(limit),
@@ -52,15 +63,13 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
     const assembly = await prisma.assembly.findUnique({
       where: { id },
       include: {
-        productAssemblies: {
+        assemblyTypes: {
           include: {
-            product: {
-              include: {
-                group: true,
-                stocks: true,
-              },
-            },
+            assemblyType: true,
           },
+        },
+        products: {
+          orderBy: { reference: 'asc' },
         },
       },
     });
@@ -69,7 +78,13 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
       throw new AppError('Assemblage non trouvé', 404);
     }
 
-    res.json({ success: true, data: assembly });
+    // Transform to flatten assemblyTypes
+    const data = {
+      ...assembly,
+      assemblyTypes: assembly.assemblyTypes.map((at) => at.assemblyType),
+    };
+
+    res.json({ success: true, data });
   } catch (error) {
     next(error);
   }
@@ -77,11 +92,36 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
 
 export const create = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const { name, description, assemblyTypeIds } = req.body;
+
     const assembly = await prisma.assembly.create({
-      data: req.body,
+      data: {
+        name,
+        description,
+        assemblyTypes: assemblyTypeIds?.length
+          ? {
+              create: assemblyTypeIds.map((typeId: string) => ({
+                assemblyTypeId: typeId,
+              })),
+            }
+          : undefined,
+      },
+      include: {
+        assemblyTypes: {
+          include: {
+            assemblyType: true,
+          },
+        },
+      },
     });
 
-    res.status(201).json({ success: true, data: assembly });
+    // Transform to flatten assemblyTypes
+    const data = {
+      ...assembly,
+      assemblyTypes: assembly.assemblyTypes.map((at) => at.assemblyType),
+    };
+
+    res.status(201).json({ success: true, data });
   } catch (error) {
     next(error);
   }
@@ -90,13 +130,51 @@ export const create = async (req: Request, res: Response, next: NextFunction) =>
 export const update = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
+    const { name, description, assemblyTypeIds } = req.body;
 
-    const assembly = await prisma.assembly.update({
-      where: { id },
-      data: req.body,
+    // Update assembly and replace assemblyTypes
+    await prisma.$transaction(async (tx) => {
+      // Delete existing relations
+      await tx.assemblyAssemblyType.deleteMany({
+        where: { assemblyId: id },
+      });
+
+      // Update assembly and create new relations
+      await tx.assembly.update({
+        where: { id },
+        data: {
+          name,
+          description,
+          assemblyTypes: assemblyTypeIds?.length
+            ? {
+                create: assemblyTypeIds.map((typeId: string) => ({
+                  assemblyTypeId: typeId,
+                })),
+              }
+            : undefined,
+        },
+      });
     });
 
-    res.json({ success: true, data: assembly });
+    // Fetch updated assembly
+    const assembly = await prisma.assembly.findUnique({
+      where: { id },
+      include: {
+        assemblyTypes: {
+          include: {
+            assemblyType: true,
+          },
+        },
+      },
+    });
+
+    // Transform to flatten assemblyTypes
+    const data = {
+      ...assembly,
+      assemblyTypes: assembly?.assemblyTypes.map((at) => at.assemblyType) || [],
+    };
+
+    res.json({ success: true, data });
   } catch (error) {
     next(error);
   }
@@ -106,81 +184,22 @@ export const remove = async (req: Request, res: Response, next: NextFunction) =>
   try {
     const id = req.params.id as string;
 
+    // Check if there are products with this assembly
+    const productsCount = await prisma.product.count({
+      where: { assemblyId: id },
+    });
+
+    if (productsCount > 0) {
+      // Set products' assemblyId to null instead of deleting
+      await prisma.product.updateMany({
+        where: { assemblyId: id },
+        data: { assemblyId: null },
+      });
+    }
+
     await prisma.assembly.delete({ where: { id } });
 
     res.json({ success: true, message: 'Assemblage supprimé' });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// Add product to assembly
-export const addProduct = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const assemblyId = req.params.id as string;
-    const { productId, quantityUsed = 1 } = req.body;
-
-    const productAssembly = await prisma.productAssembly.create({
-      data: {
-        assemblyId,
-        productId,
-        quantityUsed,
-      },
-      include: {
-        product: true,
-        assembly: true,
-      },
-    });
-
-    res.status(201).json({ success: true, data: productAssembly });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// Remove product from assembly
-export const removeProduct = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const assemblyId = req.params.id as string;
-    const productId = req.params.productId as string;
-
-    await prisma.productAssembly.delete({
-      where: {
-        productId_assemblyId: {
-          productId,
-          assemblyId,
-        },
-      },
-    });
-
-    res.json({ success: true, message: 'Produit retiré de l\'assemblage' });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// Update product quantity in assembly
-export const updateProductQuantity = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const assemblyId = req.params.id as string;
-    const productId = req.params.productId as string;
-    const { quantityUsed } = req.body;
-
-    const productAssembly = await prisma.productAssembly.update({
-      where: {
-        productId_assemblyId: {
-          productId,
-          assemblyId,
-        },
-      },
-      data: { quantityUsed },
-      include: {
-        product: true,
-        assembly: true,
-      },
-    });
-
-    res.json({ success: true, data: productAssembly });
   } catch (error) {
     next(error);
   }

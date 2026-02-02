@@ -4,8 +4,6 @@ import { validateBody, validateQuery } from '../middleware/validation';
 import {
   createAssemblySchema,
   updateAssemblySchema,
-  addProductSchema,
-  updateProductQuantitySchema,
   querySchema,
 } from '../schemas/assemblySchemas';
 
@@ -25,14 +23,5 @@ router.put('/:id', validateBody(updateAssemblySchema), assemblyController.update
 
 // DELETE /api/assemblies/:id - Delete assembly
 router.delete('/:id', assemblyController.remove);
-
-// POST /api/assemblies/:id/products - Add product to assembly
-router.post('/:id/products', validateBody(addProductSchema), assemblyController.addProduct);
-
-// DELETE /api/assemblies/:id/products/:productId - Remove product from assembly
-router.delete('/:id/products/:productId', assemblyController.removeProduct);
-
-// PUT /api/assemblies/:id/products/:productId - Update product quantity in assembly
-router.put('/:id/products/:productId', validateBody(updateProductQuantitySchema), assemblyController.updateProductQuantity);
 
 export default router;
