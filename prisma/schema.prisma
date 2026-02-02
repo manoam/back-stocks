@@ -113,6 +113,8 @@ model Product {
   assemblyType     AssemblyType?     @relation(fields: [assemblyTypeId], references: [id], onDelete: SetNull)
   comment          String?
   imageUrl         String?
+  imageData        String?           @db.Text // Base64 encoded image data
+  imageMimeType    String?           // MIME type (image/jpeg, image/png, etc.)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   productSuppliers ProductSupplier[]

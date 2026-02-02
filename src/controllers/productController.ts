@@ -126,10 +126,26 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
 
 export const create = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const product = await prisma.product.create({
-      data: req.body,
+    const { imageData, imageMimeType, ...productData } = req.body;
+
+    // Create product first
+    let product = await prisma.product.create({
+      data: productData,
       include: { assembly: true, assemblyType: true },
     });
+
+    // If image data was provided, update the product with the image
+    if (imageData && imageMimeType) {
+      product = await prisma.product.update({
+        where: { id: product.id },
+        data: {
+          imageData,
+          imageMimeType,
+          imageUrl: `/api/upload/image/${product.id}`,
+        },
+        include: { assembly: true, assemblyType: true },
+      });
+    }
 
     res.status(201).json({ success: true, data: product });
   } catch (error) {
@@ -140,10 +156,28 @@ export const create = async (req: Request, res: Response, next: NextFunction) =>
 export const update = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
+    const { imageData, imageMimeType, ...productData } = req.body;
+
+    // Prepare update data
+    const updateData: any = { ...productData };
+
+    // If new image data was provided, include it
+    if (imageData && imageMimeType) {
+      updateData.imageData = imageData;
+      updateData.imageMimeType = imageMimeType;
+      updateData.imageUrl = `/api/upload/image/${id}`;
+    }
+
+    // If imageUrl is empty/null, clear the image data too
+    if (productData.imageUrl === '' || productData.imageUrl === null) {
+      updateData.imageData = null;
+      updateData.imageMimeType = null;
+      updateData.imageUrl = null;
+    }
 
     const product = await prisma.product.update({
       where: { id },
-      data: req.body,
+      data: updateData,
       include: { assembly: true, assemblyType: true },
     });
 

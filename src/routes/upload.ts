@@ -1,37 +1,17 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
-import crypto from 'crypto';
+import { PrismaClient } from '@prisma/client';
 
 const router = Router();
+const prisma = new PrismaClient();
 
-// Create uploads directory if it doesn't exist
-// Use process.cwd() - server should be started from the server directory
-const uploadsDir = path.join(process.cwd(), 'uploads', 'products');
-console.log('Upload directory:', uploadsDir);
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-// Configure multer for image upload
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const filename = `${crypto.randomUUID()}${ext}`;
-    cb(null, filename);
-  },
-});
-
+// Configure multer to store in memory (for base64 conversion)
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB max
   },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     if (allowedMimes.includes(file.mimetype)) {
       cb(null, true);
@@ -41,22 +21,25 @@ const upload = multer({
   },
 });
 
-// POST /api/upload/image - Upload a product image
-router.post('/image', upload.single('image'), (req: Request, res: Response, next: NextFunction) => {
+// POST /api/upload/image - Upload a product image (stores in database)
+router.post('/image', upload.single('image'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'Aucun fichier uploadé' });
     }
 
-    const imageUrl = `/uploads/products/${req.file.filename}`;
+    // Convert buffer to base64
+    const base64Data = req.file.buffer.toString('base64');
+    const mimeType = req.file.mimetype;
 
+    // Return the data - the frontend will send it with the product update
     res.json({
       success: true,
       data: {
-        filename: req.file.filename,
         originalName: req.file.originalname,
         size: req.file.size,
-        imageUrl,
+        mimeType,
+        imageData: base64Data,
       },
     });
   } catch (error) {
@@ -64,18 +47,51 @@ router.post('/image', upload.single('image'), (req: Request, res: Response, next
   }
 });
 
-// DELETE /api/upload/image/:filename - Delete an uploaded image
-router.delete('/image/:filename', (req: Request, res: Response, next: NextFunction) => {
+// GET /api/upload/image/:productId - Serve image from database
+router.get('/image/:productId', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const filename = req.params.filename as string;
-    const filePath = path.join(uploadsDir, filename);
+    const productId = req.params.productId as string;
 
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-      res.json({ success: true, message: 'Image supprimée' });
-    } else {
-      res.status(404).json({ success: false, error: 'Image non trouvée' });
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      select: { imageData: true, imageMimeType: true },
+    });
+
+    if (!product || !product.imageData) {
+      return res.status(404).json({ success: false, error: 'Image non trouvée' });
     }
+
+    // Convert base64 back to buffer
+    const imageBuffer = Buffer.from(product.imageData, 'base64');
+
+    // Set appropriate headers
+    res.setHeader('Content-Type', product.imageMimeType || 'image/jpeg');
+    res.setHeader('Content-Length', imageBuffer.length);
+    res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+    res.send(imageBuffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/upload/image/:productId - Clear image from product
+router.delete('/image/:productId', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const productId = req.params.productId as string;
+
+    await prisma.product.update({
+      where: { id: productId },
+      data: {
+        imageData: null,
+        imageMimeType: null,
+        imageUrl: null,
+      },
+    });
+
+    res.json({ success: true, message: 'Image supprimée' });
   } catch (error) {
     next(error);
   }
