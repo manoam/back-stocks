@@ -7,7 +7,9 @@ import crypto from 'crypto';
 const router = Router();
 
 // Create uploads directory if it doesn't exist
+// Use process.cwd() - server should be started from the server directory
 const uploadsDir = path.join(process.cwd(), 'uploads', 'products');
+console.log('Upload directory:', uploadsDir);
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }

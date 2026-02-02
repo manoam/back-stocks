@@ -22,8 +22,14 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve uploaded files
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+// Serve uploaded files with CORS headers
+const uploadsPath = path.join(process.cwd(), 'uploads');
+console.log('Serving uploads from:', uploadsPath);
+app.use('/uploads', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, express.static(uploadsPath));
 
 // Simple ping endpoint (no DB required)
 app.get('/', (req, res) => {

@@ -47,6 +47,9 @@ RUN npx prisma generate
 # Copy built files
 COPY --from=base /app/dist ./dist
 
+# Create uploads directory
+RUN mkdir -p /app/uploads/products
+
 # Expose port
 EXPOSE 3001
 
