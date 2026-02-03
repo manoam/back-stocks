@@ -35,6 +35,11 @@ enum SiteType {
   EXIT
 }
 
+enum PackType {
+  IN
+  OUT
+}
+
 model AssemblyType {
   id          String                 @id @default(uuid())
   name        String                 @unique
@@ -119,6 +124,7 @@ model Product {
   stocks           Stock[]
   movements        StockMovement[]
   orders           Order[]
+  packItems        PackItem[]
 
   @@map("products")
 }
@@ -200,4 +206,28 @@ model Order {
   @@index([status])
   @@index([orderDate])
   @@map("orders")
+}
+
+model Pack {
+  id          String     @id @default(uuid())
+  name        String     @unique
+  type        PackType
+  description String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  items       PackItem[]
+
+  @@map("packs")
+}
+
+model PackItem {
+  id        String  @id @default(uuid())
+  packId    String
+  pack      Pack    @relation(fields: [packId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int
+
+  @@unique([packId, productId])
+  @@map("pack_items")
 }

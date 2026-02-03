@@ -93,22 +93,22 @@ async function main() {
       const reference = row['Référence produit'];
       if (reference && typeof reference === 'string' && reference.trim()) {
         try {
-          // Handle ensemble (group)
-          let groupId: string | null = null;
+          // Handle ensemble (assembly)
+          let assemblyId: string | null = null;
           const ensemble = row['Ensemble'];
           if (ensemble && typeof ensemble === 'string' && ensemble.trim()) {
             if (!groupMap.has(ensemble)) {
               try {
-                const group = await prisma.productGroup.create({
+                const assembly = await prisma.assembly.create({
                   data: { name: ensemble.trim() },
                 });
-                groupMap.set(ensemble, group.id);
+                groupMap.set(ensemble, assembly.id);
               } catch {
-                const existing = await prisma.productGroup.findUnique({ where: { name: ensemble.trim() } });
+                const existing = await prisma.assembly.findUnique({ where: { name: ensemble.trim() } });
                 if (existing) groupMap.set(ensemble, existing.id);
               }
             }
-            groupId = groupMap.get(ensemble) || null;
+            assemblyId = groupMap.get(ensemble) || null;
           }
 
           // Map risk level
@@ -125,7 +125,7 @@ async function main() {
               qtyPerUnit: row['Qté 1 borne'] || 1,
               supplyRisk,
               location: row['Emplacement'] || null,
-              groupId,
+              assemblyId,
               comment: row['Commentaire'] || null,
             },
           });
@@ -358,7 +358,7 @@ async function main() {
   console.log(`Suppliers: ${supplierMap.size}`);
   console.log(`Sites: ${siteMap.size}`);
   console.log(`Products: ${productMap.size}`);
-  console.log(`Groups: ${groupMap.size}`);
+  console.log(`Assemblies: ${groupMap.size}`);
 
   // Verify counts
   const counts = {
