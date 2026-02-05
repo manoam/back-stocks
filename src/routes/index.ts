@@ -12,8 +12,17 @@ import assemblyRoutes from './assemblyRoutes';
 import assemblyTypeRoutes from './assemblyTypeRoutes';
 import uploadRoutes from './upload';
 import packRoutes from './packs';
+import { authenticate } from '../middleware/auth';
 
 const router = Router();
+
+// Health check (public)
+router.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Apply authentication to all routes below
+router.use(authenticate as any);
 
 router.use('/products', productRoutes);
 router.use('/suppliers', supplierRoutes);
@@ -28,10 +37,5 @@ router.use('/assemblies', assemblyRoutes);
 router.use('/assembly-types', assemblyTypeRoutes);
 router.use('/upload', uploadRoutes);
 router.use('/packs', packRoutes);
-
-// Health check
-router.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
 
 export default router;
