@@ -69,7 +69,6 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
             product: {
               include: {
                 assembly: true,
-                group: true,
               },
             },
           },
