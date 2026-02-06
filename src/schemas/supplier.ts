@@ -16,6 +16,7 @@ export const supplierQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(10000).default(20),
   search: z.string().optional(),
+  assemblyTypeId: z.string().uuid().optional(),
 });
 
 export type CreateSupplierInput = z.infer<typeof createSupplierSchema>;

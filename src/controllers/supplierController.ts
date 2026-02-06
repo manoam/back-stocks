@@ -4,7 +4,7 @@ import { AppError } from '../middleware/errorHandler';
 
 export const getAll = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { page = 1, limit = 20, search } = (req as any).parsedQuery || req.query;
+    const { page = 1, limit = 20, search, assemblyTypeId } = (req as any).parsedQuery || req.query;
 
     const where: any = {};
 
@@ -14,6 +14,17 @@ export const getAll = async (req: Request, res: Response, next: NextFunction) =>
         { contact: { contains: search as string, mode: 'insensitive' } },
         { email: { contains: search as string, mode: 'insensitive' } },
       ];
+    }
+
+    // Filter suppliers that have products linked to a specific assembly type
+    if (assemblyTypeId) {
+      where.productSuppliers = {
+        some: {
+          product: {
+            assemblyTypeId: assemblyTypeId as string,
+          },
+        },
+      };
     }
 
     const [suppliers, total] = await Promise.all([
@@ -58,6 +69,7 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
             product: {
               include: {
                 assembly: true,
+                group: true,
               },
             },
           },
