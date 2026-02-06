@@ -79,9 +79,14 @@ model Supplier {
   name             String            @unique
   contact          String?
   email            String?
-  phone            String?
+  phone            String?           // Téléphone fixe uniquement (pas de portable)
   website          String?
-  address          String?
+  address          String?           // Rue, numéro
+  postalCode       String?
+  city             String?
+  country          String?
+  latitude         Decimal?          @db.Decimal(10, 8)
+  longitude        Decimal?          @db.Decimal(11, 8)
   comment          String?
   createdAt        DateTime          @default(now())
   productSuppliers ProductSupplier[]
