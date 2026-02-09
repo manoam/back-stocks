@@ -34,6 +34,18 @@ export const getAll = async (req: Request, res: Response, next: NextFunction) =>
       };
     }
 
+    // When filtering by supplier, include that supplier's ProductSupplier data
+    const productSuppliersInclude = supplierId
+      ? {
+          include: { supplier: true },
+          where: { supplierId },
+        }
+      : {
+          include: { supplier: true },
+          where: { isPrimary: true },
+          take: 1,
+        };
+
     const [products, total] = await Promise.all([
       prisma.product.findMany({
         where,
@@ -46,11 +58,7 @@ export const getAll = async (req: Request, res: Response, next: NextFunction) =>
             },
           },
           assemblyType: true,
-          productSuppliers: {
-            include: { supplier: true },
-            where: { isPrimary: true },
-            take: 1,
-          },
+          productSuppliers: productSuppliersInclude as any,
           stocks: {
             include: { site: true },
           },
@@ -106,9 +114,13 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
           orderBy: { movementDate: 'desc' },
           take: 10,
         },
-        orders: {
-          include: { supplier: true },
-          orderBy: { orderDate: 'desc' },
+        orderItems: {
+          include: {
+            order: {
+              include: { supplier: true },
+            },
+          },
+          orderBy: { order: { orderDate: 'desc' } },
           take: 10,
         },
       },

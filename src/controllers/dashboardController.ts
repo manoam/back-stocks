@@ -125,9 +125,9 @@ export const getPendingOrders = async (req: Request, res: Response, next: NextFu
     const orders = await prisma.order.findMany({
       where: { status: 'PENDING' },
       include: {
-        product: true,
         supplier: true,
         destinationSite: true,
+        items: { include: { product: true } },
       },
       orderBy: { expectedDate: 'asc' },
       take: 10,
@@ -310,8 +310,8 @@ export const getOrdersByMonth = async (req: Request, res: Response, next: NextFu
       },
       select: {
         status: true,
-        quantity: true,
         orderDate: true,
+        items: { select: { quantity: true } },
       },
     });
 
@@ -333,7 +333,8 @@ export const getOrdersByMonth = async (req: Request, res: Response, next: NextFu
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const monthData = monthlyData.get(key);
       if (monthData) {
-        monthData.totalQty += order.quantity;
+        const orderTotalQty = order.items.reduce((sum, item) => sum + item.quantity, 0);
+        monthData.totalQty += orderTotalQty;
         if (order.status === 'PENDING') monthData.pending++;
         else if (order.status === 'COMPLETED') monthData.completed++;
         else if (order.status === 'CANCELLED') monthData.cancelled++;

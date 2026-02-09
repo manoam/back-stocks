@@ -8,7 +8,7 @@ interface KeycloakConfig {
 
 const config: KeycloakConfig = {
   realm: process.env.KEYCLOAK_REALM || 'konitys',
-  authServerUrl: process.env.KEYCLOAK_AUTH_SERVER_URL || 'https://keycloak-production-9856.up.railway.app',
+  authServerUrl: process.env.KEYCLOAK_AUTH_SERVER_URL || 'https://keycloak-production-bfd4.up.railway.app',
   clientId: process.env.KEYCLOAK_CLIENT_ID || 'stock-management-api',
 };
 

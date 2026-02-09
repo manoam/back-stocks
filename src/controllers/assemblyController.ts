@@ -75,7 +75,7 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
     });
 
     if (!assembly) {
-      throw new AppError('Assemblage non trouvé', 404);
+      throw new AppError('Borne non trouvée', 404);
     }
 
     // Transform to flatten assemblyTypes
@@ -199,7 +199,7 @@ export const remove = async (req: Request, res: Response, next: NextFunction) =>
 
     await prisma.assembly.delete({ where: { id } });
 
-    res.json({ success: true, message: 'Assemblage supprimé' });
+    res.json({ success: true, message: 'Borne supprimée' });
   } catch (error) {
     next(error);
   }

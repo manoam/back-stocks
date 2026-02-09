@@ -75,10 +75,15 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
         },
         orders: {
           include: {
-            product: true,
+            items: {
+              include: { product: true },
+            },
             destinationSite: true,
           },
           orderBy: { orderDate: 'desc' },
+        },
+        contacts: {
+          orderBy: { lastName: 'asc' },
         },
       },
     });

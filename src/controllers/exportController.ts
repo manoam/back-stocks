@@ -291,42 +291,51 @@ export const exportOrders = async (req: Request, res: Response, next: NextFuncti
     const orders = await prisma.order.findMany({
       where,
       include: {
-        product: true,
         supplier: true,
         destinationSite: true,
+        items: { include: { product: true } },
       },
       orderBy: { orderDate: 'desc' },
     });
 
     const headers = [
       'Date commande',
+      'Titre commande',
       'Produit',
       'Fournisseur',
       'Qté',
+      'Prix unitaire',
       'État commande',
       'Destination',
       'Date prévue',
-      'Date réception',
+      'Date réception item',
       'Qté reçue',
       'Ref fournisseur',
       'Responsable',
       'Commentaire',
     ];
 
-    const rows = orders.map(order => [
-      order.orderDate.toISOString().split('T')[0],
-      order.product.reference,
-      order.supplier.name,
-      order.quantity,
-      mapOrderStatus(order.status),
-      order.destinationSite?.name || '',
-      order.expectedDate?.toISOString().split('T')[0] || '',
-      order.receivedDate?.toISOString().split('T')[0] || '',
-      order.receivedQty || '',
-      order.supplierRef || '',
-      order.responsible || '',
-      order.comment || '',
-    ]);
+    const rows: any[][] = [];
+    orders.forEach(order => {
+      order.items.forEach(item => {
+        rows.push([
+          order.orderDate.toISOString().split('T')[0],
+          order.title || '',
+          item.product.reference,
+          order.supplier.name,
+          item.quantity,
+          item.unitPrice ? Number(item.unitPrice) : '',
+          mapOrderStatus(order.status),
+          order.destinationSite?.name || '',
+          order.expectedDate?.toISOString().split('T')[0] || '',
+          item.receivedDate?.toISOString().split('T')[0] || '',
+          item.receivedQty || '',
+          order.supplierRef || '',
+          order.responsible || '',
+          order.comment || '',
+        ]);
+      });
+    });
 
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
@@ -447,17 +456,24 @@ export const exportAll = async (req: Request, res: Response, next: NextFunction)
 
     // 4. COMMANDES CLASSIK
     const orders = await prisma.order.findMany({
-      include: { product: true, supplier: true, destinationSite: true },
+      include: { supplier: true, destinationSite: true, items: { include: { product: true } } },
       orderBy: { orderDate: 'desc' },
     });
 
-    const orderHeaders = ['Produit', 'Fournisseur', 'Qté', 'État commande', 'Destination', 'Date commande', 'Date prévue', 'Qté reçue', 'Responsable', 'Commentaire'];
-    const orderRows = orders.map(o => [
-      o.product.reference, o.supplier.name, o.quantity, mapOrderStatus(o.status),
-      o.destinationSite?.name || '', o.orderDate.toISOString().split('T')[0],
-      o.expectedDate?.toISOString().split('T')[0] || '', o.receivedQty || '',
-      o.responsible || '', o.comment || '',
-    ]);
+    const orderHeaders = ['Titre', 'Produit', 'Fournisseur', 'Qté', 'Prix unitaire', 'État commande', 'Destination', 'Date commande', 'Date prévue', 'Qté reçue', 'Responsable', 'Commentaire'];
+    const orderRows: any[][] = [];
+    orders.forEach(o => {
+      o.items.forEach(item => {
+        orderRows.push([
+          o.title || '', item.product.reference, o.supplier.name, item.quantity,
+          item.unitPrice ? Number(item.unitPrice) : '',
+          mapOrderStatus(o.status), o.destinationSite?.name || '',
+          o.orderDate.toISOString().split('T')[0],
+          o.expectedDate?.toISOString().split('T')[0] || '',
+          item.receivedQty || '', o.responsible || '', o.comment || '',
+        ]);
+      });
+    });
 
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([orderHeaders, ...orderRows]), 'COMMANDES CLASSIK');
 

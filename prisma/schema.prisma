@@ -91,8 +91,26 @@ model Supplier {
   createdAt        DateTime          @default(now())
   productSuppliers ProductSupplier[]
   orders           Order[]
+  contacts         SupplierContact[]
+  orderTemplates   OrderTemplate[]
 
   @@map("suppliers")
+}
+
+model SupplierContact {
+  id          String   @id @default(uuid())
+  supplierId  String
+  supplier    Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  firstName   String
+  lastName    String
+  email       String?
+  phone       String?
+  position    String?  // Poste
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("supplier_contacts")
 }
 
 model Site {
@@ -106,6 +124,7 @@ model Site {
   sourceMovements StockMovement[] @relation("SourceSite")
   targetMovements StockMovement[] @relation("TargetSite")
   orders          Order[]
+  orderTemplates  OrderTemplate[]
 
   @@map("sites")
 }
@@ -128,8 +147,9 @@ model Product {
   productSuppliers ProductSupplier[]
   stocks           Stock[]
   movements        StockMovement[]
-  orders           Order[]
+  orderItems       OrderItem[]
   packItems        PackItem[]
+  orderTemplateItems OrderTemplateItem[]
 
   @@map("products")
 }
@@ -190,27 +210,42 @@ model StockMovement {
 
 model Order {
   id                String      @id @default(uuid())
-  productId         String
-  product           Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderNumber       String      @unique
+  title             String?
   supplierId        String
   supplier          Supplier    @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  quantity          Int
   status            OrderStatus @default(PENDING)
   orderDate         DateTime
   expectedDate      DateTime?
   receivedDate      DateTime?
-  receivedQty       Int?
   destinationSiteId String?
   destinationSite   Site?       @relation(fields: [destinationSiteId], references: [id])
   responsible       String?
   supplierRef       String?
   comment           String?
+  createdBy         String?
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
+  items             OrderItem[]
 
   @@index([status])
   @@index([orderDate])
   @@map("orders")
+}
+
+model OrderItem {
+  id           String    @id @default(uuid())
+  orderId      String
+  order        Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity     Int
+  unitPrice    Decimal?  @db.Decimal(10, 2)
+  receivedQty  Int?
+  receivedDate DateTime?
+  condition    String?
+
+  @@map("order_items")
 }
 
 model Pack {
@@ -235,4 +270,33 @@ model PackItem {
 
   @@unique([packId, productId])
   @@map("pack_items")
+}
+
+model OrderTemplate {
+  id                String              @id @default(uuid())
+  name              String              @unique
+  supplierId        String
+  supplier          Supplier            @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  destinationSiteId String?
+  destinationSite   Site?               @relation(fields: [destinationSiteId], references: [id])
+  responsible       String?
+  comment           String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  items             OrderTemplateItem[]
+
+  @@map("order_templates")
+}
+
+model OrderTemplateItem {
+  id         String        @id @default(uuid())
+  templateId String
+  template   OrderTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity   Int
+  unitPrice  Decimal?      @db.Decimal(10, 2)
+
+  @@unique([templateId, productId])
+  @@map("order_template_items")
 }

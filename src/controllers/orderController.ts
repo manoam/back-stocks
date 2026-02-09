@@ -1,17 +1,25 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
-import { OrderQueryInput, ReceiveOrderInput } from '../schemas/order';
+import { OrderQueryInput, ReceiveItemInput } from '../schemas/order';
 import { AppError } from '../middleware/errorHandler';
+
+const orderInclude = {
+  supplier: true,
+  destinationSite: true,
+  items: {
+    include: { product: true },
+  },
+};
 
 export const getAll = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { page, limit, status, supplierId, productId, startDate, endDate } = (req as any).parsedQuery as OrderQueryInput;
+    const { page, limit, status, supplierId, productId, startDate, endDate, search } = (req as any).parsedQuery as OrderQueryInput;
 
     const where: any = {};
 
     if (status) where.status = status;
     if (supplierId) where.supplierId = supplierId;
-    if (productId) where.productId = productId;
+    if (productId) where.items = { some: { productId } };
 
     if (startDate || endDate) {
       where.orderDate = {};
@@ -19,14 +27,17 @@ export const getAll = async (req: Request, res: Response, next: NextFunction) =>
       if (endDate) where.orderDate.lte = new Date(endDate);
     }
 
+    if (search) {
+      where.OR = [
+        { orderNumber: { contains: search, mode: 'insensitive' } },
+        { title: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
     const [orders, total] = await Promise.all([
       prisma.order.findMany({
         where,
-        include: {
-          product: true,
-          supplier: true,
-          destinationSite: true,
-        },
+        include: orderInclude,
         orderBy: { orderDate: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
@@ -55,11 +66,7 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
 
     const order = await prisma.order.findUnique({
       where: { id },
-      include: {
-        product: true,
-        supplier: true,
-        destinationSite: true,
-      },
+      include: orderInclude,
     });
 
     if (!order) {
@@ -74,13 +81,44 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
 
 export const create = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const order = await prisma.order.create({
-      data: req.body,
-      include: {
-        product: true,
-        supplier: true,
-        destinationSite: true,
-      },
+    const { items, ...headerData } = req.body;
+
+    const order = await prisma.$transaction(async (tx) => {
+      // Generate orderNumber: CMD-YYYY-NNNN
+      const year = new Date().getFullYear();
+      const prefix = `CMD-${year}-`;
+
+      const lastOrder = await tx.order.findFirst({
+        where: { orderNumber: { startsWith: prefix } },
+        orderBy: { orderNumber: 'desc' },
+        select: { orderNumber: true },
+      });
+
+      let nextSeq = 1;
+      if (lastOrder?.orderNumber) {
+        const parts = lastOrder.orderNumber.split('-');
+        const lastSeq = parseInt(parts[2], 10);
+        if (!isNaN(lastSeq)) {
+          nextSeq = lastSeq + 1;
+        }
+      }
+
+      const orderNumber = `${prefix}${String(nextSeq).padStart(4, '0')}`;
+
+      return tx.order.create({
+        data: {
+          ...headerData,
+          orderNumber,
+          items: {
+            create: items.map((item: { productId: string; quantity: number; unitPrice?: number }) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice ?? null,
+            })),
+          },
+        },
+        include: orderInclude,
+      });
     });
 
     res.status(201).json({ success: true, data: order });
@@ -96,11 +134,7 @@ export const update = async (req: Request, res: Response, next: NextFunction) =>
     const order = await prisma.order.update({
       where: { id },
       data: req.body,
-      include: {
-        product: true,
-        supplier: true,
-        destinationSite: true,
-      },
+      include: orderInclude,
     });
 
     res.json({ success: true, data: order });
@@ -109,56 +143,57 @@ export const update = async (req: Request, res: Response, next: NextFunction) =>
   }
 };
 
-export const receive = async (req: Request, res: Response, next: NextFunction) => {
+export const receiveItem = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = req.params.id as string;
-    const { receivedDate, receivedQty, condition, comment }: ReceiveOrderInput = req.body;
+    const orderId = req.params.id as string;
+    const itemId = req.params.itemId as string;
+    const { receivedDate, receivedQty, condition, comment }: ReceiveItemInput = req.body;
 
-    // Récupérer la commande
+    // Récupérer la commande et l'item
     const order = await prisma.order.findUnique({
-      where: { id },
+      where: { id: orderId },
+      include: { items: true },
     });
 
     if (!order) {
       throw new AppError('Commande non trouvée', 404);
     }
 
-    if (order.status === 'COMPLETED') {
-      throw new AppError('Cette commande est déjà terminée', 400);
+    const item = order.items.find((i) => i.id === itemId);
+    if (!item) {
+      throw new AppError('Ligne de commande non trouvée', 404);
+    }
+
+    if (item.receivedQty !== null) {
+      throw new AppError('Cette ligne a déjà été réceptionnée', 400);
     }
 
     if (!order.destinationSiteId) {
       throw new AppError('Site de destination non défini pour cette commande', 400);
     }
 
-    // Transaction: mettre à jour la commande + créer le mouvement
     const result = await prisma.$transaction(async (tx) => {
-      // Mettre à jour la commande
-      const updatedOrder = await tx.order.update({
-        where: { id },
+      // Mettre à jour l'item
+      await tx.orderItem.update({
+        where: { id: itemId },
         data: {
-          status: 'COMPLETED',
-          receivedDate: new Date(receivedDate),
           receivedQty,
-        },
-        include: {
-          product: true,
-          supplier: true,
-          destinationSite: true,
+          receivedDate: new Date(receivedDate),
+          condition: condition || 'NEW',
         },
       });
 
       // Créer le mouvement d'entrée
       await tx.stockMovement.create({
         data: {
-          productId: order.productId,
+          productId: item.productId,
           type: 'IN',
           targetSiteId: order.destinationSiteId!,
           quantity: receivedQty,
           condition: condition || 'NEW',
           movementDate: new Date(receivedDate),
           operator: order.responsible,
-          comment: comment || `Réception commande ${order.supplierRef || id}`,
+          comment: comment || `Réception commande ${order.orderNumber}`,
         },
       });
 
@@ -168,12 +203,12 @@ export const receive = async (req: Request, res: Response, next: NextFunction) =
       await tx.stock.upsert({
         where: {
           productId_siteId: {
-            productId: order.productId,
+            productId: item.productId,
             siteId: order.destinationSiteId!,
           },
         },
         create: {
-          productId: order.productId,
+          productId: item.productId,
           siteId: order.destinationSiteId!,
           [quantityField]: receivedQty,
         },
@@ -182,7 +217,29 @@ export const receive = async (req: Request, res: Response, next: NextFunction) =
         },
       });
 
-      return updatedOrder;
+      // Vérifier si tous les items sont réceptionnés
+      const allItems = await tx.orderItem.findMany({
+        where: { orderId },
+      });
+
+      const allReceived = allItems.every((i) =>
+        i.id === itemId ? true : i.receivedQty !== null
+      );
+
+      if (allReceived) {
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            status: 'COMPLETED',
+            receivedDate: new Date(receivedDate),
+          },
+        });
+      }
+
+      return tx.order.findUnique({
+        where: { id: orderId },
+        include: orderInclude,
+      });
     });
 
     res.json({ success: true, data: result });
@@ -195,10 +252,22 @@ export const remove = async (req: Request, res: Response, next: NextFunction) =>
   try {
     const id = req.params.id as string;
 
-    const order = await prisma.order.findUnique({ where: { id } });
+    const order = await prisma.order.findUnique({
+      where: { id },
+      include: { items: true },
+    });
 
-    if (order?.status === 'COMPLETED') {
+    if (!order) {
+      throw new AppError('Commande non trouvée', 404);
+    }
+
+    if (order.status === 'COMPLETED') {
       throw new AppError('Impossible de supprimer une commande terminée', 400);
+    }
+
+    const hasReceivedItems = order.items.some((i) => i.receivedQty !== null && i.receivedQty > 0);
+    if (hasReceivedItems) {
+      throw new AppError('Impossible de supprimer une commande avec des articles déjà réceptionnés', 400);
     }
 
     await prisma.order.delete({ where: { id } });

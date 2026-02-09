@@ -566,21 +566,46 @@ async function importOrders(workbook: XLSX.WorkBook, result: ImportResult) {
         orderStatus = 'CANCELLED';
       }
 
-      await prisma.order.create({
-        data: {
-          productId: product.id,
-          supplierId: supplier.id,
-          quantity,
-          status: orderStatus,
-          orderDate: orderDate || new Date(),
-          expectedDate,
-          receivedDate: orderStatus === 'COMPLETED' ? (receivedDate || new Date()) : null,
-          receivedQty: orderStatus === 'COMPLETED' ? (receivedQty || quantity) : null,
-          destinationSiteId: destinationSite?.id,
-          responsible,
-          supplierRef,
-          comment,
-        },
+      await prisma.$transaction(async (tx) => {
+        // Generate orderNumber: CMD-YYYY-NNNN
+        const year = new Date().getFullYear();
+        const prefix = `CMD-${year}-`;
+        const lastOrder = await tx.order.findFirst({
+          where: { orderNumber: { startsWith: prefix } },
+          orderBy: { orderNumber: 'desc' },
+          select: { orderNumber: true },
+        });
+        let nextSeq = 1;
+        if (lastOrder?.orderNumber) {
+          const parts = lastOrder.orderNumber.split('-');
+          const lastSeq = parseInt(parts[2], 10);
+          if (!isNaN(lastSeq)) nextSeq = lastSeq + 1;
+        }
+        const orderNumber = `${prefix}${String(nextSeq).padStart(4, '0')}`;
+
+        await tx.order.create({
+          data: {
+            orderNumber,
+            supplierId: supplier.id,
+            status: orderStatus,
+            orderDate: orderDate || new Date(),
+            expectedDate,
+            receivedDate: orderStatus === 'COMPLETED' ? (receivedDate || new Date()) : null,
+            destinationSiteId: destinationSite?.id,
+            responsible,
+            supplierRef,
+            comment,
+            items: {
+              create: [{
+                productId: product.id,
+                quantity,
+                receivedQty: orderStatus === 'COMPLETED' ? (receivedQty || quantity) : null,
+                receivedDate: orderStatus === 'COMPLETED' ? (receivedDate || new Date()) : null,
+                condition: orderStatus === 'COMPLETED' ? 'NEW' : null,
+              }],
+            },
+          },
+        });
       });
       result.orders.created++;
     } catch (error: any) {
