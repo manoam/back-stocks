@@ -1,5 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import * as XLSX from 'xlsx';
+import path from 'path';
+import fs from 'fs';
+import crypto from 'crypto';
 import prisma from '../config/database';
 import { AppError } from '../middleware/errorHandler';
 
@@ -60,6 +63,23 @@ export const previewImport = async (req: Request, res: Response, next: NextFunct
   }
 };
 
+// Detect if workbook uses the flat format (sheets = assembly types with product+supplier in same rows)
+function isFlatFormat(workbook: XLSX.WorkBook): boolean {
+  const sheetNames = workbook.SheetNames.map(s => s.toLowerCase());
+  // Flat format: no standard sheets, but has sheets like CLASSIK, SPHERIK, etc.
+  const hasStandardSheets = sheetNames.some(s =>
+    s.includes('produits') || s.includes('fournisseur') || s.includes('synthese')
+  );
+  if (hasStandardSheets) return false;
+
+  // Check if first sheet has "Référence produit" + "Fournisseur A" columns (flat format signature)
+  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+  if (!firstSheet) return false;
+  const headers = (XLSX.utils.sheet_to_json(firstSheet, { header: 1 })[0] as string[]) || [];
+  const headerStr = headers.filter(Boolean).join('|').toLowerCase();
+  return headerStr.includes('référence produit') && headerStr.includes('fournisseur');
+}
+
 // Full import from Excel file
 export const importExcel = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -67,7 +87,7 @@ export const importExcel = async (req: Request, res: Response, next: NextFunctio
       throw new AppError('Aucun fichier fourni', 400);
     }
 
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer', bookFiles: true });
 
     const result: ImportResult = {
       products: { created: 0, updated: 0, errors: [] },
@@ -79,26 +99,19 @@ export const importExcel = async (req: Request, res: Response, next: NextFunctio
       orders: { created: 0, errors: [] },
     };
 
-    // 1. Import Sites (from SYNTHESE headers or dedicated sheet)
-    await importSites(workbook, result);
-
-    // 2. Import Suppliers (from REF FOURNISSEURS)
-    await importSuppliers(workbook, result);
-
-    // 3. Import Products (from PRODUITS or SYNTHESE)
-    await importProducts(workbook, result);
-
-    // 4. Import Product-Supplier relations (from REF FOURNISSEURS)
-    await importProductSuppliers(workbook, result);
-
-    // 5. Import Stock Initial (from STOCK INITIAL or SYNTHESE)
-    await importStockInitial(workbook, result);
-
-    // 6. Import Movements (from MVT CLASSIK)
-    await importMovements(workbook, result);
-
-    // 7. Import Orders (from COMMANDES CLASSIK)
-    await importOrders(workbook, result);
+    if (isFlatFormat(workbook)) {
+      // New flat format: each sheet = assembly type, rows = product + supplier combined
+      await importFlatFormat(workbook, result);
+    } else {
+      // Standard format: separate sheets for products, suppliers, etc.
+      await importSites(workbook, result);
+      await importSuppliers(workbook, result);
+      await importProducts(workbook, result);
+      await importProductSuppliers(workbook, result);
+      await importStockInitial(workbook, result);
+      await importMovements(workbook, result);
+      await importOrders(workbook, result);
+    }
 
     res.json({
       success: true,
@@ -614,11 +627,247 @@ async function importOrders(workbook: XLSX.WorkBook, result: ImportResult) {
   }
 }
 
+/**
+ * Extract image-to-row mappings from an xlsx workbook.
+ * xlsx files are zips containing:
+ *   - xl/drawings/drawingN.xml — anchors linking images to cell rows
+ *   - xl/drawings/_rels/drawingN.xml.rels — mapping rId to image file
+ *   - xl/media/imageN.ext — actual image buffers
+ * Sheet N uses drawingN (1-indexed).
+ */
+function extractSheetImages(workbook: any, sheetIndex: number): Map<number, { buffer: Buffer; ext: string }> {
+  const rowToImage = new Map<number, { buffer: Buffer; ext: string }>();
+  const files = workbook.files;
+  if (!files) return rowToImage;
+
+  const drawingFile = `xl/drawings/drawing${sheetIndex + 1}.xml`;
+  const relsFile = `xl/drawings/_rels/drawing${sheetIndex + 1}.xml.rels`;
+
+  const drawingEntry = files[drawingFile];
+  const relsEntry = files[relsFile];
+  if (!drawingEntry || !relsEntry) return rowToImage;
+
+  const relsContent = relsEntry.content instanceof Buffer
+    ? relsEntry.content.toString('utf8')
+    : String(relsEntry.content || '');
+  const drawingContent = drawingEntry.content instanceof Buffer
+    ? drawingEntry.content.toString('utf8')
+    : String(drawingEntry.content || '');
+
+  // Parse rels: rId -> image filename
+  const rIdToImageFile: Record<string, string> = {};
+  const relRegex = /Id="(rId\d+)"[^>]*Target="([^"]+)"/g;
+  let m;
+  while ((m = relRegex.exec(relsContent)) !== null) {
+    if (m[2].includes('media/')) {
+      rIdToImageFile[m[1]] = m[2].replace('../media/', '');
+    }
+  }
+
+  // Parse drawing: row -> rId (oneCellAnchor or twoCellAnchor)
+  const anchorRegex = /<xdr:(?:one|two)CellAnchor[\s\S]*?<\/xdr:(?:one|two)CellAnchor>/g;
+  while ((m = anchorRegex.exec(drawingContent)) !== null) {
+    const anchor = m[0];
+    const rowMatch = anchor.match(/<xdr:from>[\s\S]*?<xdr:row>(\d+)<\/xdr:row>/);
+    const embedMatch = anchor.match(/r:embed="(rId\d+)"/);
+    if (rowMatch && embedMatch) {
+      const row = parseInt(rowMatch[1]);
+      const imageFileName = rIdToImageFile[embedMatch[1]];
+      if (imageFileName) {
+        const imageEntry = files[`xl/media/${imageFileName}`];
+        if (imageEntry?.content instanceof Buffer) {
+          const ext = path.extname(imageFileName) || '.png';
+          rowToImage.set(row, { buffer: imageEntry.content, ext });
+        }
+      }
+    }
+  }
+
+  return rowToImage;
+}
+
+/**
+ * Save an image buffer to the uploads/products directory.
+ * Returns the URL path (e.g., /uploads/products/uuid.jpg).
+ */
+function saveProductImage(imageBuffer: Buffer, ext: string): string {
+  const uploadsDir = path.join(process.cwd(), 'uploads', 'products');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+  const filename = `${crypto.randomUUID()}${ext}`;
+  fs.writeFileSync(path.join(uploadsDir, filename), imageBuffer);
+  return `/uploads/products/${filename}`;
+}
+
+// Map sheet names to existing assembly type names in the database
+const sheetNameToAssemblyType: Record<string, string> = {
+  'CLASSIK': 'Borne Classik',
+  'SPHERIK': 'Borne Spherik',
+};
+
+// Import flat format: each sheet = assembly type, rows have product + supplier combined
+async function importFlatFormat(workbook: any, result: ImportResult) {
+  const skipSheets = ['modif pour recopie'];
+
+  for (let sheetIdx = 0; sheetIdx < workbook.SheetNames.length; sheetIdx++) {
+    const sheetName = workbook.SheetNames[sheetIdx];
+    if (skipSheets.includes(sheetName.toLowerCase())) continue;
+
+    const data = getSheetData(workbook, sheetName);
+    if (data.length === 0) continue;
+
+    // Extract images for this sheet (row index -> image buffer)
+    const sheetImages = extractSheetImages(workbook, sheetIdx);
+
+    // Map sheet name to assembly type name (e.g., CLASSIK -> borne classik)
+    const assemblyTypeName = sheetNameToAssemblyType[sheetName] || sheetName;
+
+    // Upsert AssemblyType from mapped name
+    let assemblyType;
+    try {
+      assemblyType = await prisma.assemblyType.upsert({
+        where: { name: assemblyTypeName },
+        create: { name: assemblyTypeName },
+        update: {},
+      });
+    } catch (error: any) {
+      result.products.errors.push(`Type "${sheetName}": ${error.message}`);
+      continue;
+    }
+
+    for (let rowIdx = 0; rowIdx < data.length; rowIdx++) {
+      const row = data[rowIdx];
+      const reference = (row['Référence produit'] || row['Référence'])?.toString().trim();
+      if (!reference) continue;
+
+      // Row index in drawing is 1-based (row 0 = header, row 1 = first data row)
+      const imageData = sheetImages.get(rowIdx + 1);
+
+      // --- Product ---
+      try {
+        const existing = await prisma.product.findUnique({ where: { reference } });
+
+        if (existing) {
+          // Product already exists: only update imageUrl if we have a new image
+          const updateData: any = {};
+          if (imageData) {
+            updateData.imageUrl = saveProductImage(imageData.buffer, imageData.ext);
+          }
+          // Always update assemblyTypeId
+          updateData.assemblyTypeId = assemblyType.id;
+          await prisma.product.update({ where: { reference }, data: updateData });
+          result.products.updated++;
+        } else {
+          // New product: create with all fields
+          const productData: any = {
+            reference,
+            description: row['Description']?.toString() || null,
+            qtyPerUnit: parseInt(row['Quantité pour 1 borne']) || parseInt(row['Qté 1 borne']) || 1,
+            supplyRisk: mapSupplyRisk(row['Risques appro'] || row['Risque appro']),
+            location: (row['Emplacement de stockage'] || row['Emplacement'])?.toString() || null,
+            assemblyTypeId: assemblyType.id,
+          };
+          if (imageData) {
+            productData.imageUrl = saveProductImage(imageData.buffer, imageData.ext);
+          }
+          await prisma.product.create({ data: productData });
+          result.products.created++;
+        }
+      } catch (error: any) {
+        result.products.errors.push(`Produit "${reference}": ${error.message}`);
+        continue;
+      }
+
+      const product = await prisma.product.findUnique({ where: { reference } });
+      if (!product) continue;
+
+      // --- Supplier A ---
+      const supplierAName = (row['Fournisseur A'] || row['Fournisseur'])?.toString().trim();
+      if (supplierAName) {
+        try {
+          const supplier = await prisma.supplier.upsert({
+            where: { name: supplierAName },
+            create: { name: supplierAName },
+            update: {},
+          });
+
+          const supplierRef = (row['Référence du Fournisseur A'] || row['Ref fournisseur'])?.toString() || null;
+          const productUrl = row['Lien achat']?.toString() || null;
+          const unitPrice = parseFloat(row["Prix d'achat unitaire"] || row['Prix']) || null;
+          const leadTime = (row["Délai d'approvisionnement"] || row['Délai'])?.toString() || null;
+          const shippingCost = parseFloat(row['Frais de livraison'] || row['Frais']) || null;
+          const priceUpdatedAt = parseExcelDate(row['Date MAJ tarifs']);
+
+          const existingPS = await prisma.productSupplier.findUnique({
+            where: { productId_supplierId: { productId: product.id, supplierId: supplier.id } },
+          });
+
+          const psData = {
+            isPrimary: true,
+            supplierRef,
+            productUrl,
+            unitPrice,
+            leadTime,
+            shippingCost,
+            priceUpdatedAt,
+          };
+
+          if (existingPS) {
+            await prisma.productSupplier.update({ where: { id: existingPS.id }, data: psData });
+            result.productSuppliers.updated++;
+          } else {
+            await prisma.productSupplier.create({
+              data: { productId: product.id, supplierId: supplier.id, ...psData },
+            });
+            result.productSuppliers.created++;
+          }
+        } catch (error: any) {
+          result.suppliers.errors.push(`Fournisseur A "${supplierAName}" (${reference}): ${error.message}`);
+        }
+      }
+
+      // --- Supplier B ---
+      const supplierBName = (row['Fournisseur B'])?.toString().trim();
+      if (supplierBName) {
+        try {
+          const supplier = await prisma.supplier.upsert({
+            where: { name: supplierBName },
+            create: { name: supplierBName },
+            update: {},
+          });
+
+          const supplierRef = (row['Code Fournisseur B'])?.toString() || null;
+
+          const existingPS = await prisma.productSupplier.findUnique({
+            where: { productId_supplierId: { productId: product.id, supplierId: supplier.id } },
+          });
+
+          if (existingPS) {
+            await prisma.productSupplier.update({
+              where: { id: existingPS.id },
+              data: { isPrimary: false, supplierRef },
+            });
+            result.productSuppliers.updated++;
+          } else {
+            await prisma.productSupplier.create({
+              data: { productId: product.id, supplierId: supplier.id, isPrimary: false, supplierRef },
+            });
+            result.productSuppliers.created++;
+          }
+        } catch (error: any) {
+          result.suppliers.errors.push(`Fournisseur B "${supplierBName}" (${reference}): ${error.message}`);
+        }
+      }
+    }
+  }
+}
+
 // Helper functions
 function mapSupplyRisk(value: any): 'HIGH' | 'MEDIUM' | 'LOW' | null {
   if (!value) return null;
   const str = value.toString().toLowerCase();
-  if (str.includes('élevé') || str.includes('haut') || str.includes('high') || str === '3') {
+  if (str.includes('élevé') || str.includes('haut') || str.includes('high') || str.includes('fort') || str === '3') {
     return 'HIGH';
   }
   if (str.includes('moyen') || str.includes('medium') || str === '2') {
