@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import * as productController from '../controllers/productController';
 import * as productSupplierController from '../controllers/productSupplierController';
+import * as productCommentController from '../controllers/productCommentController';
 import { validateBody, validateQuery } from '../middleware/validation';
 import { createProductSchema, updateProductSchema, productQuerySchema } from '../schemas/product';
+import { createProductCommentSchema, updateProductCommentSchema, productCommentQuerySchema } from '../schemas/productComment';
 
 const router = Router();
 
@@ -16,5 +18,11 @@ router.delete('/:id', productController.remove);
 router.post('/:id/suppliers', productSupplierController.addSupplier);
 router.delete('/:id/suppliers/:supplierId', productSupplierController.removeSupplier);
 router.put('/:id/suppliers/:supplierId/primary', productSupplierController.setPrimary);
+
+// Product comments
+router.get('/:id/comments', validateQuery(productCommentQuerySchema), productCommentController.getAll as any);
+router.post('/:id/comments', validateBody(createProductCommentSchema), productCommentController.create as any);
+router.put('/:id/comments/:commentId', validateBody(updateProductCommentSchema), productCommentController.update as any);
+router.delete('/:id/comments/:commentId', productCommentController.remove as any);
 
 export default router;

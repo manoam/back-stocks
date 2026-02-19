@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import { CreateMovementInput, MovementQueryInput } from '../schemas/movement';
 import { AppError } from '../middleware/errorHandler';
+import { publishCrudEvent } from '../services/rabbitmq';
 
 export const getAll = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -149,6 +150,8 @@ export const create = async (req: Request, res: Response, next: NextFunction) =>
 
       return movement;
     });
+
+    publishCrudEvent('stock_movements', 'inserted', result as any, (req as any).user);
 
     res.status(201).json({ success: true, data: result });
   } catch (error) {

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import { AppError } from '../middleware/errorHandler';
+import { publishCrudEvent } from '../services/rabbitmq';
 
 export const getAll = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -121,6 +122,8 @@ export const create = async (req: Request, res: Response, next: NextFunction) =>
       assemblyTypes: assembly.assemblyTypes.map((at) => at.assemblyType),
     };
 
+    publishCrudEvent('assemblies', 'inserted', data, (req as any).user);
+
     res.status(201).json({ success: true, data });
   } catch (error) {
     next(error);
@@ -174,6 +177,8 @@ export const update = async (req: Request, res: Response, next: NextFunction) =>
       assemblyTypes: assembly?.assemblyTypes.map((at) => at.assemblyType) || [],
     };
 
+    publishCrudEvent('assemblies', 'updated', data, (req as any).user);
+
     res.json({ success: true, data });
   } catch (error) {
     next(error);
@@ -198,6 +203,8 @@ export const remove = async (req: Request, res: Response, next: NextFunction) =>
     }
 
     await prisma.assembly.delete({ where: { id } });
+
+    publishCrudEvent('assemblies', 'deleted', { id }, (req as any).user);
 
     res.json({ success: true, message: 'Borne supprimée' });
   } catch (error) {

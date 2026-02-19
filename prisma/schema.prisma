@@ -35,18 +35,14 @@ enum SiteType {
   EXIT
 }
 
-enum PackType {
-  IN
-  OUT
-}
-
 model AssemblyType {
-  id          String                 @id @default(uuid())
-  name        String                 @unique
-  description String?
-  createdAt   DateTime               @default(now())
-  assemblies  AssemblyAssemblyType[]
-  products    Product[]
+  id             String                 @id @default(uuid())
+  name           String                 @unique
+  description    String?
+  createdAt      DateTime               @default(now())
+  assemblies     AssemblyAssemblyType[]
+  products       Product[]
+  partCategories PartCategory[]
 
   @@map("assembly_types")
 }
@@ -142,6 +138,7 @@ model Product {
   assemblyType     AssemblyType?     @relation(fields: [assemblyTypeId], references: [id], onDelete: SetNull)
   comment          String?
   imageUrl         String?
+  minStock         Int?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   productSuppliers ProductSupplier[]
@@ -150,8 +147,26 @@ model Product {
   orderItems       OrderItem[]
   packItems        PackItem[]
   orderTemplateItems OrderTemplateItem[]
+  partCategories   ProductPartCategory[]
+  comments         ProductComment[]
 
   @@map("products")
+}
+
+model ProductComment {
+  id             String   @id @default(uuid())
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  content        String
+  authorId       String
+  authorUsername String
+  authorName     String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([productId])
+  @@index([authorId])
+  @@map("product_comments")
 }
 
 model ProductSupplier {
@@ -227,10 +242,27 @@ model Order {
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
   items             OrderItem[]
+  comments          OrderComment[]
 
   @@index([status])
   @@index([orderDate])
   @@map("orders")
+}
+
+model OrderComment {
+  id             String   @id @default(uuid())
+  orderId        String
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  content        String
+  authorId       String
+  authorUsername String
+  authorName     String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([authorId])
+  @@map("order_comments")
 }
 
 model OrderItem {
@@ -251,7 +283,6 @@ model OrderItem {
 model Pack {
   id          String     @id @default(uuid())
   name        String     @unique
-  type        PackType
   description String?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
@@ -299,4 +330,28 @@ model OrderTemplateItem {
 
   @@unique([templateId, productId])
   @@map("order_template_items")
+}
+
+model PartCategory {
+  id             String                @id @default(uuid())
+  assemblyTypeId String
+  assemblyType   AssemblyType          @relation(fields: [assemblyTypeId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  createdAt      DateTime              @default(now())
+  products       ProductPartCategory[]
+
+  @@unique([assemblyTypeId, name])
+  @@map("part_categories")
+}
+
+model ProductPartCategory {
+  id             String       @id @default(uuid())
+  productId      String
+  product        Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  partCategoryId String
+  partCategory   PartCategory @relation(fields: [partCategoryId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, partCategoryId])
+  @@map("product_part_categories")
 }

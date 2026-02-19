@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
-import { OrderQueryInput, ReceiveItemInput } from '../schemas/order';
+import { OrderQueryInput, ReceiveItemInput, ReceiveAllInput } from '../schemas/order';
 import { AppError } from '../middleware/errorHandler';
+import { publishCrudEvent } from '../services/rabbitmq';
 
 const orderInclude = {
   supplier: true,
@@ -121,6 +122,8 @@ export const create = async (req: Request, res: Response, next: NextFunction) =>
       });
     });
 
+    publishCrudEvent('orders', 'inserted', order as any, (req as any).user);
+
     res.status(201).json({ success: true, data: order });
   } catch (error) {
     next(error);
@@ -137,6 +140,8 @@ export const update = async (req: Request, res: Response, next: NextFunction) =>
       include: orderInclude,
     });
 
+    publishCrudEvent('orders', 'updated', order as any, (req as any).user);
+
     res.json({ success: true, data: order });
   } catch (error) {
     next(error);
@@ -147,7 +152,7 @@ export const receiveItem = async (req: Request, res: Response, next: NextFunctio
   try {
     const orderId = req.params.id as string;
     const itemId = req.params.itemId as string;
-    const { receivedDate, receivedQty, condition, comment }: ReceiveItemInput = req.body;
+    const { receivedDate, receivedQty, condition, siteId, comment }: ReceiveItemInput = req.body;
 
     // Récupérer la commande et l'item
     const order = await prisma.order.findUnique({
@@ -168,8 +173,9 @@ export const receiveItem = async (req: Request, res: Response, next: NextFunctio
       throw new AppError('Cette ligne a déjà été réceptionnée', 400);
     }
 
-    if (!order.destinationSiteId) {
-      throw new AppError('Site de destination non défini pour cette commande', 400);
+    const targetSiteId = siteId || order.destinationSiteId;
+    if (!targetSiteId) {
+      throw new AppError('Site de destination non défini. Veuillez sélectionner un site.', 400);
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -188,7 +194,7 @@ export const receiveItem = async (req: Request, res: Response, next: NextFunctio
         data: {
           productId: item.productId,
           type: 'IN',
-          targetSiteId: order.destinationSiteId!,
+          targetSiteId,
           quantity: receivedQty,
           condition: condition || 'NEW',
           movementDate: new Date(receivedDate),
@@ -204,12 +210,12 @@ export const receiveItem = async (req: Request, res: Response, next: NextFunctio
         where: {
           productId_siteId: {
             productId: item.productId,
-            siteId: order.destinationSiteId!,
+            siteId: targetSiteId,
           },
         },
         create: {
           productId: item.productId,
-          siteId: order.destinationSiteId!,
+          siteId: targetSiteId,
           [quantityField]: receivedQty,
         },
         update: {
@@ -242,6 +248,124 @@ export const receiveItem = async (req: Request, res: Response, next: NextFunctio
       });
     });
 
+    publishCrudEvent('orders', 'updated', result as any, (req as any).user);
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const receiveAll = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const orderId = req.params.id as string;
+    const { receivedDate, siteId, comment, items: receivedItems }: ReceiveAllInput = req.body;
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true, destinationSite: true },
+    });
+
+    if (!order) {
+      throw new AppError('Commande non trouvée', 404);
+    }
+
+    if (order.status !== 'PENDING') {
+      throw new AppError('Seules les commandes en cours peuvent être réceptionnées', 400);
+    }
+
+    const targetSiteId = siteId || order.destinationSiteId;
+    if (!targetSiteId) {
+      throw new AppError('Site de destination non défini. Veuillez sélectionner un site.', 400);
+    }
+
+    // Vérifier que tous les items existent et sont en attente
+    const pendingItemsMap = new Map(
+      order.items.filter((i) => i.receivedQty === null).map((i) => [i.id, i])
+    );
+
+    for (const ri of receivedItems) {
+      if (!pendingItemsMap.has(ri.itemId)) {
+        throw new AppError(`Article ${ri.itemId} non trouvé ou déjà réceptionné`, 400);
+      }
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const dateObj = new Date(receivedDate);
+
+      for (const ri of receivedItems) {
+        const item = pendingItemsMap.get(ri.itemId)!;
+        const conditionValue = ri.condition || 'NEW';
+        const quantityField = conditionValue === 'NEW' ? 'quantityNew' : 'quantityUsed';
+
+        // Mettre à jour l'item
+        await tx.orderItem.update({
+          where: { id: ri.itemId },
+          data: {
+            receivedQty: ri.receivedQty,
+            receivedDate: dateObj,
+            condition: conditionValue,
+          },
+        });
+
+        // Créer le mouvement d'entrée
+        await tx.stockMovement.create({
+          data: {
+            productId: item.productId,
+            type: 'IN',
+            targetSiteId,
+            quantity: ri.receivedQty,
+            condition: conditionValue,
+            movementDate: dateObj,
+            operator: order.responsible,
+            comment: comment || `Réception globale commande ${order.orderNumber}`,
+          },
+        });
+
+        // Mettre à jour le stock
+        await tx.stock.upsert({
+          where: {
+            productId_siteId: {
+              productId: item.productId,
+              siteId: targetSiteId,
+            },
+          },
+          create: {
+            productId: item.productId,
+            siteId: targetSiteId,
+            [quantityField]: ri.receivedQty,
+          },
+          update: {
+            [quantityField]: { increment: ri.receivedQty },
+          },
+        });
+      }
+
+      // Vérifier si tous les items sont réceptionnés
+      const allItems = await tx.orderItem.findMany({
+        where: { orderId },
+      });
+
+      const allReceived = allItems.every((i) => i.receivedQty !== null);
+
+      if (allReceived) {
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            status: 'COMPLETED',
+            receivedDate: dateObj,
+          },
+        });
+      }
+
+      return tx.order.findUnique({
+        where: { id: orderId },
+        include: orderInclude,
+      });
+    });
+
+    publishCrudEvent('orders', 'updated', result as any, (req as any).user);
+
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);
@@ -271,6 +395,8 @@ export const remove = async (req: Request, res: Response, next: NextFunction) =>
     }
 
     await prisma.order.delete({ where: { id } });
+
+    publishCrudEvent('orders', 'deleted', { id }, (req as any).user);
 
     res.json({ success: true, message: 'Commande supprimée' });
   } catch (error) {

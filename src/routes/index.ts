@@ -13,6 +13,8 @@ import assemblyTypeRoutes from './assemblyTypeRoutes';
 import uploadRoutes from './upload';
 import packRoutes from './packs';
 import orderTemplateRoutes from './orderTemplates';
+import partCategoryRoutes from './partCategories';
+import userRoutes from './users';
 import { authenticate } from '../middleware/auth';
 
 const router = Router();
@@ -36,8 +38,11 @@ router.use('/import', importRoutes);
 router.use('/export', exportRoutes);
 router.use('/assemblies', assemblyRoutes);
 router.use('/assembly-types', assemblyTypeRoutes);
+router.use('/assembly-types/:assemblyTypeId/part-categories', partCategoryRoutes);
+router.use('/part-categories', partCategoryRoutes);
 router.use('/upload', uploadRoutes);
 router.use('/packs', packRoutes);
 router.use('/order-templates', orderTemplateRoutes);
+router.use('/users', userRoutes);
 
 export default router;

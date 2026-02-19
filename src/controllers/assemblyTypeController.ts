@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import { AppError } from '../middleware/errorHandler';
+import { publishCrudEvent } from '../services/rabbitmq';
 
 export const getAll = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -22,6 +23,7 @@ export const getAll = async (req: Request, res: Response, next: NextFunction) =>
           _count: {
             select: { assemblies: true },
           },
+          partCategories: true,
         },
         orderBy: { name: 'asc' },
         skip: (Number(page) - 1) * Number(limit),
@@ -65,6 +67,7 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
             },
           },
         },
+        partCategories: true,
       },
     });
 
@@ -90,6 +93,8 @@ export const create = async (req: Request, res: Response, next: NextFunction) =>
       data: req.body,
     });
 
+    publishCrudEvent('assembly_types', 'inserted', assemblyType, (req as any).user);
+
     res.status(201).json({ success: true, data: assemblyType });
   } catch (error) {
     next(error);
@@ -105,6 +110,8 @@ export const update = async (req: Request, res: Response, next: NextFunction) =>
       data: req.body,
     });
 
+    publishCrudEvent('assembly_types', 'updated', assemblyType, (req as any).user);
+
     res.json({ success: true, data: assemblyType });
   } catch (error) {
     next(error);
@@ -117,6 +124,8 @@ export const remove = async (req: Request, res: Response, next: NextFunction) =>
 
     // The relations in assembly_assembly_types will be deleted automatically via CASCADE
     await prisma.assemblyType.delete({ where: { id } });
+
+    publishCrudEvent('assembly_types', 'deleted', { id }, (req as any).user);
 
     res.json({ success: true, message: 'Type borne supprimé' });
   } catch (error) {

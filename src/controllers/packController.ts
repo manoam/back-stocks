@@ -1,19 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import { AppError } from '../middleware/errorHandler';
+import { publishCrudEvent } from '../services/rabbitmq';
 
 export const getAll = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { type } = req.query;
-
-    const where: any = {};
-
-    if (type) {
-      where.type = type;
-    }
-
     const packs = await prisma.pack.findMany({
-      where,
       include: {
         items: {
           include: {
@@ -22,6 +14,7 @@ export const getAll = async (req: Request, res: Response, next: NextFunction) =>
                 id: true,
                 reference: true,
                 description: true,
+                imageUrl: true,
               },
             },
           },
@@ -53,6 +46,7 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
                 id: true,
                 reference: true,
                 description: true,
+                imageUrl: true,
               },
             },
           },
@@ -72,13 +66,12 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
 
 export const create = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { name, type, description, items } = req.body;
+    const { name, description, items } = req.body;
 
     const pack = await prisma.$transaction(async (tx) => {
       const newPack = await tx.pack.create({
         data: {
           name,
-          type,
           description,
           items: {
             create: items.map((item: { productId: string; quantity: number }) => ({
@@ -105,6 +98,8 @@ export const create = async (req: Request, res: Response, next: NextFunction) =>
       return newPack;
     });
 
+    publishCrudEvent('packs', 'inserted', pack as any, (req as any).user);
+
     res.status(201).json({ success: true, data: pack });
   } catch (error) {
     next(error);
@@ -114,7 +109,7 @@ export const create = async (req: Request, res: Response, next: NextFunction) =>
 export const update = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
-    const { name, type, description, items } = req.body;
+    const { name, description, items } = req.body;
 
     const existingPack = await prisma.pack.findUnique({ where: { id } });
     if (!existingPack) {
@@ -122,13 +117,10 @@ export const update = async (req: Request, res: Response, next: NextFunction) =>
     }
 
     const pack = await prisma.$transaction(async (tx) => {
-      // Update pack basic info
       const updateData: any = {};
       if (name !== undefined) updateData.name = name;
-      if (type !== undefined) updateData.type = type;
       if (description !== undefined) updateData.description = description;
 
-      // If items are provided, delete all existing and recreate
       if (items && items.length > 0) {
         await tx.packItem.deleteMany({ where: { packId: id } });
 
@@ -162,6 +154,8 @@ export const update = async (req: Request, res: Response, next: NextFunction) =>
       return updatedPack;
     });
 
+    publishCrudEvent('packs', 'updated', pack as any, (req as any).user);
+
     res.json({ success: true, data: pack });
   } catch (error) {
     next(error);
@@ -178,6 +172,8 @@ export const remove = async (req: Request, res: Response, next: NextFunction) =>
     }
 
     await prisma.pack.delete({ where: { id } });
+
+    publishCrudEvent('packs', 'deleted', { id }, (req as any).user);
 
     res.json({ success: true, message: 'Pack supprimé' });
   } catch (error) {

@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import { ProductQueryInput } from '../schemas/product';
 import { AppError } from '../middleware/errorHandler';
+import { publishCrudEvent } from '../services/rabbitmq';
 
 export const getAll = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -61,6 +62,9 @@ export const getAll = async (req: Request, res: Response, next: NextFunction) =>
           productSuppliers: productSuppliersInclude as any,
           stocks: {
             include: { site: true },
+          },
+          partCategories: {
+            include: { partCategory: true },
           },
         },
         orderBy: { [sortBy || 'reference']: sortOrder || 'asc' },
@@ -123,6 +127,9 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
           orderBy: { order: { orderDate: 'desc' } },
           take: 10,
         },
+        partCategories: {
+          include: { partCategory: true },
+        },
       },
     });
 
@@ -138,10 +145,34 @@ export const getById = async (req: Request, res: Response, next: NextFunction) =
 
 export const create = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const product = await prisma.product.create({
-      data: req.body,
-      include: { assembly: true, assemblyType: true },
+    const { partCategoryIds, ...data } = req.body;
+
+    const product = await prisma.$transaction(async (tx) => {
+      const created = await tx.product.create({
+        data,
+        include: { assembly: true, assemblyType: true },
+      });
+
+      if (partCategoryIds && partCategoryIds.length > 0) {
+        await tx.productPartCategory.createMany({
+          data: partCategoryIds.map((catId: string) => ({
+            productId: created.id,
+            partCategoryId: catId,
+          })),
+        });
+      }
+
+      return tx.product.findUnique({
+        where: { id: created.id },
+        include: {
+          assembly: true,
+          assemblyType: true,
+          partCategories: { include: { partCategory: true } },
+        },
+      });
     });
+
+    publishCrudEvent('products', 'inserted', product as any, (req as any).user);
 
     res.status(201).json({ success: true, data: product });
   } catch (error) {
@@ -152,12 +183,37 @@ export const create = async (req: Request, res: Response, next: NextFunction) =>
 export const update = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
+    const { partCategoryIds, ...data } = req.body;
 
-    const product = await prisma.product.update({
-      where: { id },
-      data: req.body,
-      include: { assembly: true, assemblyType: true },
+    const product = await prisma.$transaction(async (tx) => {
+      await tx.product.update({
+        where: { id },
+        data,
+      });
+
+      if (partCategoryIds !== undefined) {
+        await tx.productPartCategory.deleteMany({ where: { productId: id } });
+        if (partCategoryIds.length > 0) {
+          await tx.productPartCategory.createMany({
+            data: partCategoryIds.map((catId: string) => ({
+              productId: id,
+              partCategoryId: catId,
+            })),
+          });
+        }
+      }
+
+      return tx.product.findUnique({
+        where: { id },
+        include: {
+          assembly: true,
+          assemblyType: true,
+          partCategories: { include: { partCategory: true } },
+        },
+      });
     });
+
+    publishCrudEvent('products', 'updated', product as any, (req as any).user);
 
     res.json({ success: true, data: product });
   } catch (error) {
@@ -170,6 +226,8 @@ export const remove = async (req: Request, res: Response, next: NextFunction) =>
     const id = req.params.id as string;
 
     await prisma.product.delete({ where: { id } });
+
+    publishCrudEvent('products', 'deleted', { id }, (req as any).user);
 
     res.json({ success: true, message: 'Produit supprimé' });
   } catch (error) {

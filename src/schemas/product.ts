@@ -10,6 +10,8 @@ export const createProductSchema = z.object({
   assemblyTypeId: z.string().uuid().optional().nullable().transform(val => val || undefined),
   comment: z.string().optional(),
   imageUrl: z.string().optional().or(z.literal('')).transform(val => val || undefined),
+  minStock: z.number().int().min(0).optional().nullable(),
+  partCategoryIds: z.array(z.string().uuid()).optional(),
 });
 
 export const updateProductSchema = createProductSchema.partial();

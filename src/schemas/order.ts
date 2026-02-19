@@ -34,8 +34,24 @@ export const receiveItemSchema = z.object({
   receivedDate: z.coerce.date(),
   receivedQty: z.number().int().positive('La quantité reçue doit être positive'),
   condition: z.enum(['NEW', 'USED']).default('NEW'),
+  siteId: z.string().uuid().optional(),
   comment: z.string().optional(),
 });
+
+const receiveAllItemSchema = z.object({
+  itemId: z.string().uuid(),
+  receivedQty: z.number().int().positive('La quantité reçue doit être positive'),
+  condition: z.enum(['NEW', 'USED']).default('NEW'),
+});
+
+export const receiveAllSchema = z.object({
+  receivedDate: z.coerce.date(),
+  siteId: z.string().uuid().optional(),
+  comment: z.string().optional(),
+  items: z.array(receiveAllItemSchema).min(1, 'Au moins un article est requis'),
+});
+
+export type ReceiveAllInput = z.infer<typeof receiveAllSchema>;
 
 export const orderQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),

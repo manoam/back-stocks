@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import { AppError } from '../middleware/errorHandler';
+import { publishCrudEvent } from '../services/rabbitmq';
 
 export const getAll = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -61,6 +62,8 @@ export const create = async (req: Request, res: Response, next: NextFunction) =>
       data: req.body,
     });
 
+    publishCrudEvent('sites', 'inserted', site, (req as any).user);
+
     res.status(201).json({ success: true, data: site });
   } catch (error) {
     next(error);
@@ -76,6 +79,8 @@ export const update = async (req: Request, res: Response, next: NextFunction) =>
       data: req.body,
     });
 
+    publishCrudEvent('sites', 'updated', site, (req as any).user);
+
     res.json({ success: true, data: site });
   } catch (error) {
     next(error);
@@ -87,6 +92,8 @@ export const remove = async (req: Request, res: Response, next: NextFunction) =>
     const id = req.params.id as string;
 
     await prisma.site.delete({ where: { id } });
+
+    publishCrudEvent('sites', 'deleted', { id }, (req as any).user);
 
     res.json({ success: true, message: 'Site supprimé' });
   } catch (error) {

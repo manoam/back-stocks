@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import app from './app';
 import prisma from './config/database';
+import rabbitmq from './services/rabbitmq';
+import { startRefSync } from './services/refSync';
 
 // Catch all uncaught errors
 process.on('uncaughtException', (error) => {
@@ -35,7 +37,15 @@ async function main() {
     await prisma.$connect();
     console.log('Step 2: Database connected successfully');
 
-    console.log('Step 3: Starting HTTP server...');
+    console.log('Step 3: Connecting to RabbitMQ...');
+    try {
+      await rabbitmq.connect();
+      await startRefSync();
+    } catch (rabbitError: any) {
+      console.warn('[RabbitMQ] Not available, continuing without event bus:', rabbitError.message);
+    }
+
+    console.log('Step 4: Starting HTTP server...');
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log('=== Server Started Successfully ===');
       console.log(`Port: ${PORT}`);
@@ -56,11 +66,13 @@ async function main() {
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
+  await rabbitmq.close();
   await prisma.$disconnect();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
+  await rabbitmq.close();
   await prisma.$disconnect();
   process.exit(0);
 });

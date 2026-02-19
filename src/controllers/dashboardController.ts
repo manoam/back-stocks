@@ -174,6 +174,7 @@ export const getLowStockAlerts = async (req: Request, res: Response, next: NextF
           assembly: product.assembly?.name,
           qtyPerUnit: product.qtyPerUnit,
           supplyRisk: product.supplyRisk,
+          minStock: product.minStock,
           totalNew,
           totalUsed,
           total,
@@ -182,7 +183,12 @@ export const getLowStockAlerts = async (req: Request, res: Response, next: NextF
           leadTime: product.productSuppliers[0]?.leadTime,
         };
       })
-      .filter((p) => p.total <= threshold || p.supplyRisk === 'HIGH')
+      .filter((p) => {
+        // Alerter uniquement si un seuil critique est défini et que le stock est en dessous
+        const hasCriticalThreshold = p.minStock != null && p.minStock > 0;
+        const isBelowThreshold = hasCriticalThreshold && p.total <= p.minStock!;
+        return isBelowThreshold || p.supplyRisk === 'HIGH';
+      })
       .sort((a, b) => {
         // Trier par risque puis par stock
         if (a.supplyRisk === 'HIGH' && b.supplyRisk !== 'HIGH') return -1;
